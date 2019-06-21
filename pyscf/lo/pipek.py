@@ -22,6 +22,7 @@ Pipek-Mezey localization
 
 import time
 import numpy
+import math
 import scipy.linalg
 from functools import reduce
 
@@ -29,6 +30,7 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.lo import orth
 from pyscf.lo import boys
+from pyscf.lo import iao
 from pyscf import __config__
 
 
@@ -66,6 +68,13 @@ def atomic_pops(mol, mo_coeff, method='meta_lowdin'):
         csc = reduce(lib.dot, (mo_coeff.conj().T, s, orth.orth_ao(mol, method, c, s=s)))
         for i, (b0, b1, p0, p1) in enumerate(mol.offset_nr_by_atom()):
             proj[i] = numpy.dot(csc[:,p0:p1], csc[:,p0:p1].conj().T)
+
+    elif method.lower() == 'iao': #Xing
+        c = iao.iao(mol, mo_coeff)
+        c = numpy.dot(c, orth.lowdin(reduce(numpy.dot, (c.conj().T,s,c)))) 
+        for i, (b0, b1, p0, p1) in enumerate(mol.offset_nr_by_atom()):
+            csc = reduce(numpy.dot, (math.sqrt(2)*mo_coeff.conj().T,s,c[:,p0:p1]))
+            proj[i] = numpy.dot(csc, csc.conj().T)
     else:
         raise KeyError('method = %s' % method)
 

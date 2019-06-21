@@ -39,3 +39,4 @@ del(os, sys)
 # All parameters initialized after loading pyscf_conf.py will be kept in the
 # program.
 #
+scf_hf_SCF_direct_scf = False

@@ -162,6 +162,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         fock = mf.get_fock(h1e, s1e, vhf, dm, cycle, mf_diis)
         mo_energy, mo_coeff = mf.eig(fock, s1e)
         mo_occ = mf.get_occ(mo_energy, mo_coeff)
+        mf.mo_occ = mo_occ #Xing
         dm = mf.make_rdm1(mo_coeff, mo_occ)
         # attach mo_coeff and mo_occ to dm to improve DFT get_veff efficiency
         dm = lib.tag_array(dm, mo_coeff=mo_coeff, mo_occ=mo_occ)
@@ -198,6 +199,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         #fock = mf.get_fock(h1e, s1e, vhf, dm)  # = h1e + vhf
         mo_energy, mo_coeff = mf.eig(fock, s1e)
         mo_occ = mf.get_occ(mo_energy, mo_coeff)
+        mf.mo_occ = mo_occ #Xing
         dm, dm_last = mf.make_rdm1(mo_coeff, mo_occ), dm
         dm = lib.tag_array(dm, mo_coeff=mo_coeff, mo_occ=mo_occ)
         vhf = mf.get_veff(mol, dm, dm_last, vhf)
