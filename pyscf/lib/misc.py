@@ -873,7 +873,7 @@ class H5TmpFile(h5py.File):
         if filename is None:
             tmpfile = tempfile.NamedTemporaryFile(dir=param.TMPDIR)
             filename = tmpfile.name
-        h5py.File.__init__(self, filename, *args, **kwargs)
+        h5py.File.__init__(self, filename,'w', *args, **kwargs)
 #FIXME: Does GC flush/close the HDF5 file when releasing the resource?
 # To make HDF5 file reusable, file has to be closed or flushed
     def __del__(self):
