@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2018 The PySCF Developers. All Rights Reserved.
+# Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,10 +21,23 @@ Restricted open-shell Kohn-Sham for periodic systems with k-point sampling
 '''
 
 import numpy as np
-from pyscf.lib import logger
+from pyscf import lib
 from pyscf.pbc.scf import krohf
 from pyscf.pbc.dft import rks
-from pyscf.pbc.dft.kuks import get_veff, energy_elec
+from pyscf.pbc.dft import kuks
+from pyscf.pbc.dft.kuks import energy_elec
+
+
+@lib.with_doc(kuks.get_veff.__doc__)
+def get_veff(ks, cell=None, dm=None, dm_last=0, vhf_last=0, hermi=1,
+             kpts=None, kpts_band=None):
+    if getattr(dm, 'mo_coeff', None) is not None:
+        mo_coeff = dm.mo_coeff
+        mo_occ_a = [(x > 0).astype(np.double) for x in dm.mo_occ]
+        mo_occ_b = [(x ==2).astype(np.double) for x in dm.mo_occ]
+        dm = lib.tag_array(dm, mo_coeff=(mo_coeff,mo_coeff),
+                           mo_occ=(mo_occ_a,mo_occ_b))
+    return kuks.get_veff(ks, cell, dm, dm_last, vhf_last, hermi, kpts, kpts_band)
 
 
 class KROKS(krohf.KROHF):
@@ -34,14 +47,14 @@ class KROKS(krohf.KROHF):
         krohf.KROHF.__init__(self, cell, kpts)
         rks._dft_common_init_(self)
 
-    def dump_flags(self):
-        krohf.KROHF.dump_flags(self)
-        logger.info(self, 'XC functionals = %s', self.xc)
-        self.grids.dump_flags()
+    def dump_flags(self, verbose=None):
+        krohf.KROHF.dump_flags(self, verbose)
+        lib.logger.info(self, 'XC functionals = %s', self.xc)
+        self.grids.dump_flags(verbose)
 
     get_veff = get_veff
-
     energy_elec = energy_elec
+    get_rho = kuks.get_rho
 
     define_xc_ = rks.define_xc_
 

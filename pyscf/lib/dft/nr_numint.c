@@ -106,9 +106,7 @@ void VXCdot_ao_dm(double *vm, double *ao, double *dm,
 {
         const int nblk = (ngrids+BLKSIZE-1) / BLKSIZE;
 
-#pragma omp parallel default(none) \
-        shared(vm, ao, dm, nao, nocc, ngrids, nbas, \
-               non0table, shls_slice, ao_loc)
+#pragma omp parallel
 {
         int ip, ib;
 #pragma omp for nowait schedule(static)
@@ -171,9 +169,7 @@ void VXCdot_ao_ao(double *vv, double *ao1, double *ao2,
         const int nblk = (ngrids+BLKSIZE-1) / BLKSIZE;
         memset(vv, 0, sizeof(double) * nao * nao);
 
-#pragma omp parallel default(none) \
-        shared(vv, ao1, ao2, nao, ngrids, nbas, hermi, \
-               non0table, shls_slice, ao_loc)
+#pragma omp parallel
 {
         int ip, ib;
         double *v_priv = calloc(nao*nao+2, sizeof(double));
@@ -195,4 +191,53 @@ void VXCdot_ao_ao(double *vv, double *ao1, double *ao2,
         if (hermi != 0) {
                 NPdsymm_triu(nao, vv, hermi);
         }
+}
+
+// 'nip,np->ip'
+void VXC_dscale_ao(double *aow, double *ao, double *wv,
+                   int comp, int nao, int ngrids)
+{
+#pragma omp parallel
+{
+        size_t Ngrids = ngrids;
+        size_t ao_size = nao * Ngrids;
+        int i, j, ic;
+        double *pao = ao;
+#pragma omp for schedule(static)
+        for (i = 0; i < nao; i++) {
+                pao = ao + i * Ngrids;
+                for (j = 0; j < Ngrids; j++) {
+                        aow[i*Ngrids+j] = pao[j] * wv[j];
+                }
+                for (ic = 1; ic < comp; ic++) {
+                for (j = 0; j < Ngrids; j++) {
+                        aow[i*Ngrids+j] += pao[ic*ao_size+j] * wv[ic*Ngrids+j];
+                } }
+        }
+}
+}
+
+// 'ip,ip->p'
+void VXC_dcontract_rho(double *rho, double *bra, double *ket,
+                       int nao, int ngrids)
+{
+#pragma omp parallel
+{
+        size_t Ngrids = ngrids;
+        int nthread = omp_get_num_threads();
+        int blksize = MAX((Ngrids+nthread-1) / nthread, 1);
+        int ib, b0, b1, i, j;
+#pragma omp for
+        for (ib = 0; ib < nthread; ib++) {
+                b0 = ib * blksize;
+                b1 = MIN(b0 + blksize, ngrids);
+                for (j = b0; j < b1; j++) {
+                        rho[j] = bra[j] * ket[j];
+                }
+                for (i = 1; i < nao; i++) {
+                for (j = b0; j < b1; j++) {
+                        rho[j] += bra[i*Ngrids+j] * ket[i*Ngrids+j];
+                } }
+        }
+}
 }

@@ -128,10 +128,10 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
 
     # For atoms near the boundary of the cell, it is necessary (even in low-
     # dimensional systems) to include lattice translations in all 3 dimensions.
-    if cell.low_dim_ft_type == 'analytic_2d_1':
-        Ls = cell.get_lattice_Ls(dimension=3)
-    else:
+    if cell.dimension < 2 or cell.low_dim_ft_type == 'inf_vacuum':
         Ls = cell.get_lattice_Ls(dimension=cell.dimension)
+    else:
+        Ls = cell.get_lattice_Ls(dimension=3)
     Ls = Ls[numpy.argsort(lib.norm(Ls, axis=1))]
     expLk = numpy.exp(1j * numpy.asarray(numpy.dot(Ls, kpts_lst.T), order='C'))
     rcut = _estimate_rcut(cell)
@@ -151,11 +151,12 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
 
     ao_kpts = []
     for k, kpt in enumerate(kpts_lst):
-        v = out[k].transpose(0,2,1)
+        v = out[k]
+        if abs(kpt).sum() < 1e-9:
+            v = numpy.asarray(v.real, order='C')
+        v = v.transpose(0,2,1)
         if comp == 1:
             v = v[0]
-        if abs(kpt).sum() < 1e-9:
-            v = v.real.copy(order='F')
         ao_kpts.append(v)
 
     if kpts is None or numpy.shape(kpts) == (3,):  # A single k-point

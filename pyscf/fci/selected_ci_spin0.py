@@ -31,7 +31,6 @@ def contract_2e(eri, civec_strs, norb, nelec, link_index=None):
         link_index = selected_ci._all_linkstr_index(ci_strs, norb, nelec)
     cd_indexa, dd_indexa, cd_indexb, dd_indexb = link_index
     na, nlinka = nb, nlinkb = cd_indexa.shape[:2]
-    ma, mlinka = mb, mlinkb = dd_indexa.shape[:2]
 
     eri = ao2mo.restore(1, eri, norb)
     eri1 = eri.transpose(0,2,1,3) - eri.transpose(0,2,3,1)
@@ -44,6 +43,7 @@ def contract_2e(eri, civec_strs, norb, nelec, link_index=None):
     # (aa|aa)
     ci1 = numpy.zeros_like(fcivec)
     if nelec[0] > 1:
+        ma, mlinka = mb, mlinkb = dd_indexa.shape[:2]
         libfci.SCIcontract_2e_aaaa(eri1.ctypes.data_as(ctypes.c_void_p),
                                    fcivec.ctypes.data_as(ctypes.c_void_p),
                                    ci1.ctypes.data_as(ctypes.c_void_p),
@@ -149,7 +149,7 @@ class SelectedCI(selected_ci.SelectedCI):
 # The argument civec_strs is a CI vector in function FCISolver.contract_2e.
 # Save and patch self._strs to make this contract_2e function compatible to
 # FCISolver.contract_2e.
-        if hasattr(civec_strs, '_strs'):
+        if getattr(civec_strs, '_strs', None) is not None:
             self._strs = civec_strs._strs
         else:
             assert(civec_strs.size == len(self._strs[0])*len(self._strs[1]))

@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import time
-import tempfile
 import numpy
 import h5py
 from pyscf import gto
@@ -237,7 +236,7 @@ def general(mol, mo_coeffs, erifile, dataname='eri_mo',
 
     if isinstance(erifile, str):
         if h5py.is_hdf5(erifile):
-            feri = h5py.File(erifile)
+            feri = h5py.File(erifile, 'a')
             if dataname in feri:
                 del(feri[dataname])
         else:

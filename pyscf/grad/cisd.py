@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2018 The PySCF Developers. All Rights Reserved.
+# Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,20 +83,27 @@ def as_scanner(grad_ci, state=0):
             if ci_scanner.nroots > 1 and state >= ci_scanner.nroots:
                 raise ValueError('State ID greater than the number of CISD roots')
 
+# TODO: Check root flip
             ci_scanner(mol)
             if ci_scanner.nroots > 1:
+                e_tot = ci_scanner.e_tot[state]
                 civec = ci_scanner.ci[state]
             else:
+                e_tot = ci_scanner.e_tot
                 civec = ci_scanner.ci
 
             mf_grad = ci_scanner._scf.nuc_grad_method()
             self.mol = mol
             de = self.kernel(civec, mf_grad=mf_grad, **kwargs)
-            return ci_scanner.e_tot, de
+            return e_tot, de
         @property
         def converged(self):
             ci_scanner = self.base
-            return all((ci_scanner._scf.converged, ci_scanner.converged))
+            if ci_scanner.nroots > 1:
+                ci_conv = ci_scanner.converged[state]
+            else:
+                ci_conv = ci_scanner.converged
+            return all((ci_scanner._scf.converged, ci_conv))
     return CISD_GradScanner(grad_ci)
 
 class Gradients(lib.StreamObject):
@@ -110,8 +117,8 @@ class Gradients(lib.StreamObject):
         self.de = None
         self._keys = set(self.__dict__.keys())
 
-    def dump_flags(self):
-        log = logger.Logger(self.stdout, self.verbose)
+    def dump_flags(self, verbose=None):
+        log = logger.new_logger(self, verbose)
         log.info('\n')
         if not self.base.converged:
             log.warn('Ground state HF not converged')
@@ -127,7 +134,8 @@ class Gradients(lib.StreamObject):
         myci = self.base
         if civec is None: civec = myci.ci
         if civec is None: civec = myci.kernel(eris=eris)
-        if isinstance(civec, (list, tuple)):
+        if (isinstance(civec, (list, tuple)) or
+            (isinstance(civec, numpy.ndarray) and civec.ndim > 1)):
             if state is None:
                 state = self.state
             else:
@@ -160,6 +168,10 @@ class Gradients(lib.StreamObject):
 
     as_scanner = as_scanner
 
+Grad = Gradients
+
+cisd.CISD.Gradients = lib.class_as_method(Gradients)
+
 
 if __name__ == '__main__':
     from pyscf import gto
@@ -179,7 +191,7 @@ if __name__ == '__main__':
 
     myci = cisd.CISD(mf)
     myci.kernel()
-    g1 = Gradients(myci).kernel()
+    g1 = myci.Gradients().kernel()
 # O     0.0000000000    -0.0000000000     0.0065498854
 # H    -0.0000000000     0.0208760610    -0.0032749427
 # H    -0.0000000000    -0.0208760610    -0.0032749427
