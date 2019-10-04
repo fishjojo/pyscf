@@ -976,7 +976,7 @@ def _make_eris_outcore(mycc, mo_coeff=None):
     # <ij||pq> = <ij|pq> - <ij|qp> = (ip|jq) - (iq|jp)
     tmpf = lib.H5TmpFile()
     if nocca > 0:
-        ao2mo.general(mol, (orboa,moa,moa,moa), tmpf, 'aa')
+        ao2mo.general(mol, (orboa,moa,moa,moa), tmpf, 'aa', verbose=mycc.verbose)
         buf = np.empty((nmoa,nmoa,nmoa))
         for i in range(nocca):
             lib.unpack_tril(tmpf['aa'][i*nmoa:(i+1)*nmoa], out=buf)
@@ -990,7 +990,7 @@ def _make_eris_outcore(mycc, mo_coeff=None):
 
     if noccb > 0:
         buf = np.empty((nmob,nmob,nmob))
-        ao2mo.general(mol, (orbob,mob,mob,mob), tmpf, 'bb')
+        ao2mo.general(mol, (orbob,mob,mob,mob), tmpf, 'bb', verbose=mycc.verbose)
         for i in range(noccb):
             lib.unpack_tril(tmpf['bb'][i*nmob:(i+1)*nmob], out=buf)
             eris.OOOO[i] = buf[:noccb,:noccb,:noccb]
@@ -1003,7 +1003,7 @@ def _make_eris_outcore(mycc, mo_coeff=None):
 
     if nocca > 0:
         buf = np.empty((nmoa,nmob,nmob))
-        ao2mo.general(mol, (orboa,moa,mob,mob), tmpf, 'ab')
+        ao2mo.general(mol, (orboa,moa,mob,mob), tmpf, 'ab', verbose=mycc.verbose)
         for i in range(nocca):
             lib.unpack_tril(tmpf['ab'][i*nmoa:(i+1)*nmoa], out=buf)
             eris.ooOO[i] = buf[:nocca,:noccb,:noccb]
@@ -1016,7 +1016,7 @@ def _make_eris_outcore(mycc, mo_coeff=None):
 
     if noccb > 0:
         buf = np.empty((nmob,nmoa,nmoa))
-        ao2mo.general(mol, (orbob,mob,moa,moa), tmpf, 'ba')
+        ao2mo.general(mol, (orbob,mob,moa,moa), tmpf, 'ba', verbose=mycc.verbose)
         for i in range(noccb):
             lib.unpack_tril(tmpf['ba'][i*nmob:(i+1)*nmob], out=buf)
             eris.OVoo[i] = buf[noccb:,:nocca,:nocca]
@@ -1028,9 +1028,9 @@ def _make_eris_outcore(mycc, mo_coeff=None):
     cput1 = logger.timer_debug1(mycc, 'transforming oopq, ovpq', *cput1)
 
     if not mycc.direct:
-        ao2mo.full(mol, orbva, eris.feri, dataname='vvvv')
-        ao2mo.full(mol, orbvb, eris.feri, dataname='VVVV')
-        ao2mo.general(mol, (orbva,orbva,orbvb,orbvb), eris.feri, dataname='vvVV')
+        ao2mo.full(mol, orbva, eris.feri, dataname='vvvv', verbose=mycc.verbose)
+        ao2mo.full(mol, orbvb, eris.feri, dataname='VVVV', verbose=mycc.verbose)
+        ao2mo.general(mol, (orbva,orbva,orbvb,orbvb), eris.feri, dataname='vvVV', verbose=mycc.verbose)
         eris.vvvv = eris.feri['vvvv']
         eris.VVVV = eris.feri['VVVV']
         eris.vvVV = eris.feri['vvVV']
