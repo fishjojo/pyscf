@@ -889,6 +889,174 @@ void GTOnr2e_fill_offdiag_s2(int (*intor)(), int (*fprescreen)(),
     return;
 }
 
+void GTOnr2e_fill_shlslice_shlpair_s2(int (*intor)(), int (*fprescreen)(),
+                          double *eri, double *buf, int comp, int ishp, int jshp, int *shls_slice,
+                          int* kl_shlp, int nkl, int nao_pair_kl, int *ao_loc, CINTOpt *cintopt,
+                          int *atm, int natm, int *bas, int nbas, double *env)
+{
+//tag
+
+    if (ishp < jshp) {
+        return;
+    }
+
+    int ish0 = shls_slice[0];
+    int ish1 = shls_slice[1];
+    int jsh0 = shls_slice[2];
+    int ni = ao_loc[ish1] - ao_loc[ish0];
+    size_t nij = ni * (ni+1) / 2;
+
+    int ish = ishp + ish0;
+    int jsh = jshp + jsh0;
+    int i0 = ao_loc[ish] - ao_loc[ish0];
+    int j0 = ao_loc[jsh] - ao_loc[jsh0];
+    eri += nao_pair_kl * (i0*(i0+1)/2 + j0);
+
+    int di = ao_loc[ish+1] - ao_loc[ish];
+    int dj = ao_loc[jsh+1] - ao_loc[jsh];
+    int dij = di * dj;
+
+	int ksh, lsh;
+    int dk, dl, dijk, dijkl;
+	int shls[4];
+    int i, j, k, l, icomp;    
+	double *eri0, *peri0, *peri, *buf0, *pbuf, *cache;
+
+    shls[0] = ish;
+    shls[1] = jsh;
+
+	int kl_off = 0;
+	for (int kl = 0; kl < nkl; kl++){
+        ksh = kl_shlp[kl*2];
+        lsh = kl_shlp[kl*2+1];
+        shls[2] = ksh;
+        shls[3] = lsh;
+
+        dk = ao_loc[ksh+1] - ao_loc[ksh];
+        dl = ao_loc[lsh+1] - ao_loc[lsh];
+
+        dijk = dij*dk;
+        dijkl = dijk*dl;
+
+		cache = buf + dijkl*comp;
+
+        if ((*fprescreen)(shls, atm, bas, env) &&
+            (*intor)(buf, NULL, shls, atm, natm, bas, nbas, env, cintopt, cache)) {
+			eri0 = eri + kl_off;
+            buf0 = buf;
+			pbuf = buf0;
+            //for (icomp = 0; icomp < comp; icomp++) {
+            	peri0 = eri0;
+                if (ish != jsh) {
+                	for (i = 0; i < di; i++, peri0+=nao_pair_kl*(i0+i)) {
+                    	for (j = 0; j < dj; j++) {
+                        	peri = peri0 + nao_pair_kl*j;
+							if (ksh != lsh){
+                            	for (k = 0; k < dk; k++) {
+                            		for (l = 0; l < dl; l++) {
+										peri[k*dl+l] = pbuf[i+j*di+k*dij+l*dijk];
+                                	}
+								}
+							}
+							else{
+								int ind1 = 0;
+								for (k = 0; k < dk; k++) {
+                                    for (l = 0; l <= k; l++) {
+                                        peri[ind1] = pbuf[i+j*di+k*dij+l*dijk];
+										ind1++;
+                                    }
+                                }
+							}
+                        } 
+					}
+                } 
+				else {
+					for (i = 0; i < di; i++, peri0+=nao_pair_kl*(i0+i)) {
+                    	for (j = 0; j <= i; j++) {
+                        	peri = peri0 + nao_pair_kl*j;
+							if (ksh != lsh){
+                            	for (k = 0; k < dk; k++) {
+                                	for (l = 0; l < dl; l++) {
+										peri[k*dl+l] = pbuf[i+j*di+k*dij+l*dijk];
+                                    } 
+								}
+							}
+							else{
+								int ind1 = 0;
+                                for (k = 0; k < dk; k++) {
+                                    for (l = 0; l <= k; l++) {
+                                        peri[ind1] = pbuf[i+j*di+k*dij+l*dijk];
+                                        ind1++;
+                                    }
+                                }
+							}
+						}
+					}
+				}
+			//}
+		}
+		else{
+			eri0 = eri + kl_off;
+            buf0 = buf;
+            pbuf = buf0;
+
+            	peri0 = eri0;
+                if (ish != jsh) {
+                	for (i = 0; i < di; i++, peri0+=nao_pair_kl*(i0+i)) {
+                    	for (j = 0; j < dj; j++) {
+                        	peri = peri0 + nao_pair_kl*j;
+							if (ksh != lsh){
+                            	for (k = 0; k < dk; k++) {
+                            		for (l = 0; l < dl; l++) {
+										peri[k*dl+l] = 0.0;
+                                	}
+								}
+							}
+							else{
+								int ind1 = 0;
+								for (k = 0; k < dk; k++) {
+                                    for (l = 0; l <= k; l++) {
+                                        peri[ind1] = 0.0;
+										ind1++;
+                                    }
+                                }
+							}
+                        } 
+					}
+                } 
+				else {
+					for (i = 0; i < di; i++, peri0+=nao_pair_kl*(i0+i)) {
+                    	for (j = 0; j <= i; j++) {
+                        	peri = peri0 + nao_pair_kl*j;
+							if (ksh != lsh){
+                            	for (k = 0; k < dk; k++) {
+                                	for (l = 0; l < dl; l++) {
+										peri[k*dl+l] = 0.0;
+                                    } 
+								}
+							}
+							else{
+								int ind1 = 0;
+                                for (k = 0; k < dk; k++) {
+                                    for (l = 0; l <= k; l++) {
+                                        peri[ind1] = 0.0;
+                                        ind1++;
+                                    }
+                                }
+							}
+						}
+					}
+				}
+
+		}
+
+		if(ksh == lsh) kl_off += dk*(dk+1)/2;
+        else kl_off += dk*dl;
+	}
+
+	return;
+}
+
 
 
 static int no_prescreen()
@@ -984,6 +1152,44 @@ void GTOnr2e_fill_shl(int (*intor)(), void (*fill)(), int (*fprescreen)(),
                 atm, natm, bas, nbas, env);
     }
     free(buf);
+}
+}
+
+
+
+
+void GTOnr2e_fill_shlslice_shlpair(int (*intor)(), void (*fill)(), int (*fprescreen)(),
+                                   double *eri, int comp, 
+                                   int *shls_slice, int* kl_shlp, int nkl, int nao_pair_kl, 
+                                   int *ao_loc, CINTOpt *cintopt,
+                                   int *atm, int natm, int *bas, int nbas, double *env)
+{       
+        if (fprescreen == NULL) {
+                fprescreen = no_prescreen;
+        }
+        
+        const int ish0 = shls_slice[0];
+        const int ish1 = shls_slice[1];
+        const int jsh0 = shls_slice[2];
+        const int jsh1 = shls_slice[3];
+        const int nish = ish1 - ish0;
+        const int njsh = jsh1 - jsh0;
+        const int di = GTOmax_shell_dim(ao_loc, shls_slice, 2);
+        const int cache_size = GTOmax_cache_size(intor, shls_slice, 2, 
+                                                 atm, natm, bas, nbas, env);
+
+#pragma omp parallel
+{       
+        int ij, i, j; 
+        double *buf = malloc(sizeof(double) * (di*di*di*di*comp + cache_size));
+#pragma omp for nowait schedule(dynamic)
+        for (ij = 0; ij < nish*njsh; ij++) {
+                i = ij / njsh; 
+                j = ij % njsh; 
+                (*fill)(intor, fprescreen, eri, buf, comp, i, j, shls_slice, kl_shlp, nkl, nao_pair_kl,
+                        ao_loc, cintopt, atm, natm, bas, nbas, env);
+        }
+        free(buf);
 }
 }
 

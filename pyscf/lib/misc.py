@@ -236,6 +236,15 @@ def tril_loop(ni, i0=0, istep=1, j0=0, jstep=1):
         for j in range(j0, i+1, jstep):
             yield i,j
 
+def triu_loop(ni, i0=0, istep=1, j0=0, jstep=1):
+
+    '''Loop over upper triangle of a 2d matrix
+    '''
+    for i in range(i0, ni, istep):
+        for j in range(i, ni, jstep):
+            yield i,j
+
+
 def mat_loop_2d(ni,nj, i0=0, istep=1, j0=0, jstep=1):
 
     '''Loop over the full 2d matrix

@@ -225,6 +225,35 @@ class ShlPairs():
 
         return eri, nao_l, nao_r
 
+    def make_eri_shlslice_shlpair(self, ij_shls_slice, kl_ind):
+
+        nao_r = 0
+        for ind in range(kl_ind.shape[0]):
+            k = kl_ind[ind,0]
+            l = kl_ind[ind,1]
+            kl_pair = self.get_shlpair(k,l)
+            nao_kl = kl_pair.eri_diag.size
+            nao_r += nao_kl
+
+        ish0 = ij_shls_slice[0]
+        ish1 = ij_shls_slice[1]
+        jsh0 = ij_shls_slice[0]
+        jsh1 = ij_shls_slice[1]
+        di = self.ao_loc[ish1] - self.ao_loc[ish0]
+        dj = self.ao_loc[jsh1] - self.ao_loc[jsh0]
+
+        if self.shlpair_sym == 's1':
+            nao_l = di*dj
+        elif self.shlpair_sym == 's2':
+            nao_l = di*(di+1)//2
+
+        eri_size = nao_l * nao_r
+
+        klshl = np.asarray(kl_ind[:,2:4], dtype=np.int32, order="C")
+        eri = get_eri_shlslice_shlpair(self.mol, self, ij_shls_slice, klshl, nao_r, eri_size) 
+
+        return eri, nao_l, nao_r 
+
 
 def get_eri_diag(mol, shl_pairs):
 
@@ -316,6 +345,48 @@ def get_eri_offdiag(mol, shl_pairs, p_shlpair_ind, q_shlpair_ind, nao_pair_kl, i
     return eri
 
 
+def get_eri_shlslice_shlpair(mol, shl_pairs, ij_shls_slice, kl_shlpair_ind, nao_pair_kl, eri_size):
+
+    from pyscf.gto.moleintor import make_cintopt
+
+    cput0 = (time.clock(), time.time())
+
+    atm = np.asarray(mol._atm, dtype=np.int32, order='C')
+    bas = np.asarray(mol._bas, dtype=np.int32, order='C')
+    env = np.asarray(mol._env, dtype=np.double, order='C')
+    c_atm = atm.ctypes.data_as(ctypes.c_void_p)
+    c_bas = bas.ctypes.data_as(ctypes.c_void_p)
+    c_env = env.ctypes.data_as(ctypes.c_void_p)
+    natm = atm.shape[0]
+    nbas = bas.shape[0]
+    ao_loc = shl_pairs.ao_loc
+    intor_name = mol._add_suffix('int2e')
+    comp = 1
+
+    c_kl_shlpair_ind = kl_shlpair_ind.ctypes.data_as(ctypes.c_void_p)
+    nkl = kl_shlpair_ind.shape[0]
+
+    drv = libcgto.GTOnr2e_fill_shlslice_shlpair
+    fill = getattr(libcgto, 'GTOnr2e_fill_shlslice_shlpair_' + shl_pairs.shlpair_sym)
+
+    prescreen = lib.c_null_ptr()
+    cintopt = make_cintopt(atm, bas, env, intor_name)
+    eri = np.ndarray([eri_size],dtype = np.double)
+
+    ij_shls_slice = tuple(ij_shls_slice)
+    drv(getattr(libcgto, intor_name), fill, prescreen,\
+        eri.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(comp),\
+        (ctypes.c_int*4)(*ij_shls_slice),\
+        c_kl_shlpair_ind, ctypes.c_int(nkl), ctypes.c_int(nao_pair_kl),\
+        ao_loc.ctypes.data_as(ctypes.c_void_p), cintopt,\
+        c_atm, ctypes.c_int(natm), c_bas, ctypes.c_int(nbas), c_env)
+
+
+    cput1 = logger.timer(mol, 'eri_shlslice_shlpair', *cput0)
+
+    return eri
+
+
 class df_cholesky(lib.StreamObject):
 
     '''
@@ -332,13 +403,13 @@ class df_cholesky(lib.StreamObject):
         self.shlpair_sym =  shlpair_sym
         self.shl_pairs = ShlPairs(mol, shls_slice, shlpair_sym = self.shlpair_sym)
         self.shl_pairs.init_shlpairs()
-
+        self.ij_shls_slice = shls_slice
         self.verbose = mol.verbose
 
     def kernel(self):
 
         self.step1()
-        self.step2()
+        return self.step2()
 
     def step1(self):
 
@@ -499,21 +570,40 @@ class df_cholesky(lib.StreamObject):
         mask[:,:] = True
         ioff = 0
         izero = 0
+        insert_loc = []
         for i, j in self.shl_pairs.ijloop():
             shl_pair = self.shl_pairs.get_shlpair(i,j)
             if shl_pair.Bmask == 1:
                 for ind in range(shl_pair.Bmask_ao.size):
                     if shl_pair.Bmask_ao[ind] == 0:
                         izero += 1
+                        insert_loc.append(ioff+ind-izero+1)
                         mask[ioff + ind,:]=False
                         mask[:,ioff + ind]=False
                 ioff += shl_pair.eri_diag.size
 
-        print(eri_S.shape)
         eri_S_ao = eri_S[mask].reshape((nao_ij-izero,nao_ij-izero))
-        print(eri_S_ao.shape)
 
-        w, v = np.linalg.eigh(eri_S_ao)
-        idx = w > LINEAR_DEP_THR
-        L = v[:,idx]/np.sqrt(w[idx])
+        try:
+            L = np.linalg.cholesky(eri_S_ao)
+            tag = 'cd'
+        except np.linalg.LinAlgError:
+            w, v = np.linalg.eigh(eri_S_ao)
+            idx = w > LINEAR_DEP_THR
+            L = v[:,idx]/np.sqrt(w[idx])
+            tag = 'eig'
+            #print(w)
 
+        if tag == 'cd':
+            L = np.linalg.inv(L).T
+
+        print(L.shape)
+        #L = np.insert(L, insert_loc, 0.0, axis = 0)
+        #print(L.shape)
+
+        eri, nao_ij, nao_kl = self.shl_pairs.make_eri_shlslice_shlpair(self.ij_shls_slice, shlpair_ind)
+        eri = eri.reshape(nao_ij, nao_kl)
+        cderi = np.dot(eri,L).T
+
+        return cderi
+        
