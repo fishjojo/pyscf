@@ -597,12 +597,29 @@ class df_cholesky(lib.StreamObject):
         if tag == 'cd':
             L = np.linalg.inv(L).T
 
-        print(L.shape)
+        print("L.shape = ", L.shape)
         #L = np.insert(L, insert_loc, 0.0, axis = 0)
         #print(L.shape)
 
         eri, nao_ij, nao_kl = self.shl_pairs.make_eri_shlslice_shlpair(self.ij_shls_slice, shlpair_ind)
         eri = eri.reshape(nao_ij, nao_kl)
+
+        mask = np.ndarray([nao_ij,nao_kl],dtype=bool)
+        mask[:,:] = True
+        ioff = 0
+        izero = 0
+        insert_loc = []
+        for i, j in self.shl_pairs.ijloop():
+            shl_pair = self.shl_pairs.get_shlpair(i,j)
+            if shl_pair.Bmask == 1:
+                for ind in range(shl_pair.Bmask_ao.size):
+                    if shl_pair.Bmask_ao[ind] == 0:
+                        izero += 1
+                        insert_loc.append(ioff+ind-izero+1)
+                        mask[:,ioff + ind]=False
+                ioff += shl_pair.eri_diag.size
+        eri = eri[mask].reshape((nao_ij, nao_kl-izero))
+
         cderi = np.dot(eri,L).T
 
         return cderi
