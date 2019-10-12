@@ -32,6 +32,13 @@ import types
 import ctypes
 import numpy
 import h5py
+from threading import Thread
+from multiprocessing import Queue, Process
+try:
+    from concurrent.futures import ThreadPoolExecutor
+except ImportError:
+    ThreadPoolExecutor = None
+
 from pyscf.lib import param
 from pyscf import __config__
 
@@ -518,6 +525,9 @@ class StreamObject(object):
             setattr(self, k, v)
         return self
 
+    # An alias to .set method
+    __call__ = set
+
     def apply(self, fn, *args, **kwargs):
         '''
         Apply the fn to rest arguments:  return fn(*args, **kwargs).  The
@@ -643,6 +653,7 @@ def class_as_method(cls):
         return cls(obj, *args, **kwargs)
     fn.__doc__ = cls.__doc__
     fn.__name__ = cls.__name__
+    fn.__module__ = cls.__module__
     return fn
 
 def import_as_method(fn, default_keys=None):
@@ -722,8 +733,6 @@ def izip(*args):
     else:
         return zip(*args)
 
-from threading import Thread
-from multiprocessing import Queue, Process
 class ProcessWithReturnValue(Process):
     def __init__(self, group=None, target=None, name=None, args=(),
                  kwargs=None):
@@ -831,7 +840,8 @@ class call_in_background(object):
 
     def __init__(self, *fns, **kwargs):
         self.fns = fns
-        self.handler = None
+        self.executor = None
+        self.handlers = [None] * len(self.fns)
         self.sync = kwargs.get('sync', not ASYNC_IO)
 
     if h5py.version.version[:4] == '2.2.': # h5py-2.2.* has bug in threading mode
@@ -844,6 +854,10 @@ class call_in_background(object):
 
     else:
         def __enter__(self):
+            fns = self.fns
+            handlers = self.handlers
+            ntasks = len(self.fns)
+
             if self.sync or imp.lock_held():
 # Some modules like nosetests, coverage etc
 #   python -m unittest test_xxx.py  or  nosetests test_xxx.py
@@ -852,29 +866,52 @@ class call_in_background(object):
 # https://github.com/paramiko/paramiko/issues/104
 # https://docs.python.org/2/library/threading.html#importing-in-threaded-code
 # Disable the asynchoronous mode for safe importing
-                def def_async_fn(fn):
-                    return fn
+                def def_async_fn(i):
+                    return fns[i]
 
-            else:
-                # Enable back-ground mode
-                def def_async_fn(fn):
+            elif ThreadPoolExecutor is None: # async mode, old python
+                def def_async_fn(i):
                     def async_fn(*args, **kwargs):
-                        if self.handler is not None:
-                            self.handler.join()
-                        self.handler = ThreadWithTraceBack(target=fn, args=args,
-                                                           kwargs=kwargs)
-                        self.handler.start()
-                        return self.handler
+                        if self.handlers[i] is not None:
+                            self.handlers[i].join()
+                        self.handlers[i] = ThreadWithTraceBack(target=fns[i], args=args,
+                                                               kwargs=kwargs)
+                        self.handlers[i].start()
+                        return self.handlers[i]
+                    return async_fn
+
+            else: # multiple executors in async mode, python 2.7.12 or newer
+                executor = self.executor = ThreadPoolExecutor(max_workers=ntasks)
+                def def_async_fn(i):
+                    def async_fn(*args, **kwargs):
+                        if handlers[i] is not None:
+                            try:
+                                handlers[i].result()
+                            except Exception as e:
+                                raise ThreadRuntimeError('Error on thread %s:\n%s'
+                                                         % (self, e))
+                        handlers[i] = executor.submit(fns[i], *args, **kwargs)
+                        return handlers[i]
                     return async_fn
 
             if len(self.fns) == 1:
-                return def_async_fn(self.fns[0])
+                return def_async_fn(0)
             else:
-                return [def_async_fn(fn) for fn in self.fns]
+                return [def_async_fn(i) for i in range(ntasks)]
 
     def __exit__(self, type, value, traceback):
-        if self.handler is not None:
-            self.handler.join()
+        for handler in self.handlers:
+            if handler is not None:
+                try:
+                    if ThreadPoolExecutor is None:
+                        handler.join()
+                    else:
+                        handler.result()
+                except Exception as e:
+                    raise ThreadRuntimeError('Error on thread %s:\n%s' % (self, e))
+
+        if self.executor is not None:
+            self.executor.shutdown(wait=True)
 
 
 class H5TmpFile(h5py.File):

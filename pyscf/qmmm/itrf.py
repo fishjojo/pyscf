@@ -64,8 +64,7 @@ def mm_charge(scf_method, coords, charges, unit=None):
     >>> mf.kernel()
     -101.940495711284
     '''
-    assert(isinstance(scf_method, scf.hf.SCF) or
-           isinstance(scf_method, mcscf.casci.CASCI))
+    assert(isinstance(scf_method, (scf.hf.SCF, mcscf.casci.CASCI)))
 
     if unit is None:
         unit = scf_method.mol.unit
@@ -76,10 +75,21 @@ def mm_charge(scf_method, coords, charges, unit=None):
     else:
         coords = numpy.asarray(coords, order='C') / unit
     charges = numpy.asarray(charges)
-    method_class = scf_method.__class__
 
-    class QMMM(method_class, _QMMM):
-        def __init__(self):
+    if isinstance(scf_method, scf.hf.SCF):
+        if isinstance(scf_method, _QMMM):
+            return scf_method
+
+        method_class = scf_method.__class__
+
+    else:
+        if isinstance(scf_method._scf, _QMMM):
+            return scf_method
+
+        method_class = scf_method._scf.__class__
+
+    class QMMM(_QMMM, method_class):
+        def __init__(self, scf_method):
             self.__dict__.update(scf_method.__dict__)
 
         def dump_flags(self, verbose=None):
@@ -94,7 +104,7 @@ def mm_charge(scf_method, coords, charges, unit=None):
 
         def get_hcore(self, mol=None):
             if mol is None: mol = self.mol
-            if getattr(scf_method, 'get_hcore', None):
+            if getattr(method_class, 'get_hcore', None):
                 h1e = method_class.get_hcore(self, mol)
             else:  # DO NOT modify post-HF objects to avoid the MM charges applied twice
                 raise RuntimeError('mm_charge function cannot be applied on post-HF methods')
@@ -135,8 +145,15 @@ def mm_charge(scf_method, coords, charges, unit=None):
         def nuc_grad_method(self):
             scf_grad = method_class.nuc_grad_method(self)
             return mm_charge_grad(scf_grad, coords, charges, 'Bohr')
+        Gradients = nuc_grad_method
 
-    return QMMM()
+    if isinstance(scf_method, scf.hf.SCF):
+        return QMMM(scf_method)
+    else:
+        scf_method._scf = QMMM(scf_method._scf).run()
+        scf_method.mo_coeff = scf_method._scf.mo_coeff
+        scf_method.mo_energy = scf_method._scf.mo_energy
+        return scf_method
 add_mm_charges = mm_charge
 
 def mm_charge_grad(scf_grad, coords, charges, unit=None):
@@ -185,7 +202,7 @@ def mm_charge_grad(scf_grad, coords, charges, unit=None):
     charges = numpy.asarray(charges)
 
     grad_class = scf_grad.__class__
-    class QMMM(grad_class, _QMMMGrad):
+    class QMMM(_QMMMGrad, grad_class):
         def __init__(self, scf_grad):
             self.__dict__.update(scf_grad.__dict__)
 
