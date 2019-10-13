@@ -173,7 +173,10 @@ class dRPA(TDDFTNoHybrid):
             raise RuntimeError("direct RPA can only be applied with DFT; for HF+dRPA, use .xc='hf'")
         from pyscf import scf
         mf = scf.addons.convert_to_rhf(mf)
-        mf.xc = '0.0*LDA'
+        # commit fc8d1967995b7e033b60d4428ddcca87aac78e4f handles xc='' .
+        # xc='0*LDA' is equivalent to xc=''
+        #mf.xc = '0.0*LDA'
+        mf.xc = ''
         TDDFTNoHybrid.__init__(self, mf)
 
 TDH = dRPA
@@ -184,7 +187,10 @@ class dTDA(TDA):
             raise RuntimeError("direct TDA can only be applied with DFT; for HF+dTDA, use .xc='hf'")
         from pyscf import scf
         mf = scf.addons.convert_to_rhf(mf)
-        mf.xc = '0.0*LDA'
+        # commit fc8d1967995b7e033b60d4428ddcca87aac78e4f handles xc='' .
+        # xc='0*LDA' is equivalent to xc=''
+        #mf.xc = '0.0*LDA'
+        mf.xc = ''
         TDA.__init__(self, mf)
 
 
@@ -199,7 +205,7 @@ from pyscf import dft
 dft.rks.RKS.TDA           = dft.rks_symm.RKS.TDA           = lib.class_as_method(TDA)
 dft.rks.RKS.TDHF          = dft.rks_symm.RKS.TDHF          = None
 #dft.rks.RKS.TDDFT         = dft.rks_symm.RKS.TDDFT         = lib.class_as_method(TDDFT)
-#dft.rks.RKS.TDDFTNoHybrid = dft.rks_symm.RKS.TDDFTNoHybrid = lib.class_as_method(TDDFTNoHybrid)
+dft.rks.RKS.TDDFTNoHybrid = dft.rks_symm.RKS.TDDFTNoHybrid = lib.class_as_method(TDDFTNoHybrid)
 dft.rks.RKS.TDDFT         = dft.rks_symm.RKS.TDDFT         = tddft
 dft.rks.RKS.dTDA          = dft.rks_symm.RKS.dTDA          = lib.class_as_method(dTDA)
 dft.rks.RKS.dRPA          = dft.rks_symm.RKS.dRPA          = lib.class_as_method(dRPA)
