@@ -129,6 +129,10 @@ class EOM(lib.StreamObject):
                     self.max_memory, lib.current_memory()[0])
         return self
 
+    def reset(self, mol=None):
+        self._cc.reset(mol)
+        return self
+
 
 def _sort_left_right_eigensystem(eom, right_converged, right_evals, right_evecs,
                                  left_converged, left_evals, left_evecs, tol=1e-6):
@@ -394,7 +398,7 @@ def ipccsd_diag(eom, imds=None):
 
 def ipccsd_star_contract(eom, ipccsd_evals, ipccsd_evecs, lipccsd_evecs, imds=None):
     from pyscf.cc.ccsd_t import _sort_eri, _sort_t2_vooo_
-    cpu1 = cpu0 = (time.clock(), time.time())
+    cpu1 = (time.clock(), time.time())
     log = logger.Logger(eom.stdout, eom.verbose)
     if imds is None:
         imds = eom.make_imds()
@@ -419,15 +423,10 @@ def ipccsd_star_contract(eom, ipccsd_evals, ipccsd_evecs, lipccsd_evecs, imds=No
 
     cpu1 = log.timer_debug1('CCSD(T) sort_eri', *cpu1)
 
-    fov = fock[:nocc,nocc:]
-    foo = fock[:nocc,:nocc]
-    fvv = fock[nocc:,nocc:]
-
     mem_now = lib.current_memory()[0]
     max_memory = max(0, eom.max_memory - mem_now)
     blksize = min(nvir, max(ccsd.BLKMIN, int(max_memory*1e6/8/(nocc**3*6))))
 
-    fock_mo_energy = np.asarray(eris.fock.diagonal())
     mo_e_occ = np.asarray(mo_energy[:nocc])
     mo_e_vir = np.asarray(mo_energy[nocc:])
 
@@ -622,21 +621,21 @@ def amplitudes_to_vector_ea(r1, r2):
     return vector
 
 def eaccsd_matvec(eom, vector, imds=None, diag=None):
-    # Ref: Nooijen and Bartlett, J. Chem. Phys. 102, 3629 (1994) Eqs.(30)-(31)
+    # Ref: Nooijen and Bartlett, J. Chem. Phys. 102, 3629 (1995) Eqs.(30)-(31)
     if imds is None: imds = eom.make_imds()
     nocc = eom.nocc
     nmo = eom.nmo
     nvir = nmo - nocc
     r1, r2 = vector_to_amplitudes_ea(vector, nmo, nocc)
 
-    # Eq. (30)
+    # Eq. (37)
     # 1p-1p block
     Hr1 =  np.einsum('ac,c->a', imds.Lvv, r1)
     # 1p-2p1h block
     Hr1 += np.einsum('ld,lad->a', 2.*imds.Fov, r2)
     Hr1 += np.einsum('ld,lda->a',   -imds.Fov, r2)
     Hr1 += np.einsum('alcd,lcd->a', 2.*imds.Wvovv-imds.Wvovv.transpose(0,1,3,2), r2)
-    # Eq. (31)
+    # Eq. (38)
     # 2p1h-1p block
     Hr2 = np.einsum('abcj,c->jab', imds.Wvvvo, r1)
     # 2p1h-2p1h block
@@ -749,7 +748,7 @@ def eaccsd_diag(eom, imds=None):
     return vector
 
 def eaccsd_star_contract(eom, eaccsd_evals, eaccsd_evecs, leaccsd_evecs, imds=None):
-    cpu1 = cpu0 = (time.clock(), time.time())
+    cpu1 = (time.clock(), time.time())
     log = logger.Logger(eom.stdout, eom.verbose)
     if imds is None:
         imds = eom.make_imds()
@@ -758,7 +757,6 @@ def eaccsd_star_contract(eom, eaccsd_evals, eaccsd_evecs, leaccsd_evecs, imds=No
 
     fock = eris.fock
     nocc, nvir = t1.shape
-    nmo = nocc + nvir
     dtype = np.result_type(t1, t2, eris.ovoo.dtype)
     # Notice we do not use `sort_eri` as compared to the eaccsd_star.
     # The sort_eri does not produce eri's that are read-in quickly for the current contraction
@@ -767,16 +765,11 @@ def eaccsd_star_contract(eom, eaccsd_evals, eaccsd_evecs, leaccsd_evecs, imds=No
     # in ipccsd_star versus virtual indices in eaccsd_star).
     cpu1 = log.timer_debug1('CCSD(T) sort_eri', *cpu1)  # Left if new sort_eri implemented
 
-    fov = fock[:nocc,nocc:]
-    foo = fock[:nocc,:nocc]
-    fvv = fock[nocc:,nocc:]
-
     mem_now = lib.current_memory()[0]
     max_memory = max(0, eom.max_memory - mem_now)
     blksize = min(nocc, max(ccsd.BLKMIN, int(max_memory*1e6/8/(nvir**3*6))))
 
     mo_energy = np.asarray(eris.mo_energy)
-    fock_mo_energy = np.asarray(eris.fock.diagonal())
     mo_e_occ = np.asarray(mo_energy[:nocc])
     mo_e_vir = np.asarray(mo_energy[nocc:])
 
@@ -1403,7 +1396,6 @@ def eeccsd_matvec_sf(eom, vector, imds=None):
     Hr2baaa += lib.einsum('be,ijea->ijba', imds.Fvv*.5, r2baaa)
     Hr2aaba += lib.einsum('be,ijea->ijba', imds.Fvv*.5, r2aaba)
 
-    tmp1 = np.zeros((nvir,nvir), dtype=r1.dtype)
     mem_now = lib.current_memory()[0]
     max_memory = max(0, eom.max_memory - mem_now - Hr2aaba.size*8e-6)
     blksize = min(nocc, max(ccsd.BLKMIN, int(max_memory*1e6/8/(nvir**3*3))))
@@ -1433,7 +1425,7 @@ def eeccsd_matvec_sf(eom, vector, imds=None):
         tmp = lib.einsum('af,jibf->ijab', tmp, t2)
         Hr2baaa -= tmp
         Hr2aaba -= tmp
-        tpm = ovvv = None
+        tmp = ovvv = None
     tau2aaba = tau2baaa = None
 
     tmp = lib.einsum('mbij,ma->ijab', imds.woVoO, r1)
@@ -1867,7 +1859,6 @@ class _IMDS:
             raise NotImplementedError('Complex integrals are not supported in EOM-EE-CCSD')
 
         nocc, nvir = t1.shape
-        nvir_pair = nvir*(nvir+1)//2
 
         fswap = lib.H5TmpFile()
         self.saved = lib.H5TmpFile()
@@ -2033,7 +2024,7 @@ class _IMDS:
             # tmp = (mf|be) - (me|bf)*.5
             tmp = -.5 * ebmf
             tmp += efmb.transpose(1,0,2,3)
-            emfb = ebmf = None
+            ebmf = None
             wvOvV += lib.einsum('efmb,mifa->eiba', tmp, theta)
             tmp = None
 

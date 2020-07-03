@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
+# Copyright 2014-2020 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ Dirac Hartree-Fock
 import time
 from functools import reduce
 import numpy
-import scipy.linalg
 from pyscf import lib
 from pyscf import gto
 from pyscf.lib import logger
@@ -46,7 +45,7 @@ def kernel(mf, conv_tol=1e-9, conv_tol_grad=None,
         conv_tol_grad = numpy.sqrt(conv_tol)
         logger.info(mf, 'Set gradient conv threshold to %g', conv_tol_grad)
     if dm0 is None:
-        dm = mf.get_init_guess()
+        dm = mf.get_init_guess(mf.mol, mf.init_guess)
     else:
         dm = dm0
 
@@ -154,6 +153,11 @@ def init_guess_by_atom(mol):
     dm = hf.init_guess_by_atom(mol)
     return _proj_dmll(mol, dm, mol)
 
+def init_guess_by_huckel(mol):
+    '''Initial guess from on-the-fly Huckel, doi:10.1021/acs.jctc.8b01089.'''
+    dm = hf.init_guess_by_huckel(mol)
+    return _proj_dmll(mol, dm, mol)
+
 def init_guess_by_chkfile(mol, chkfile_name, project=None):
     '''Read SCF chkfile and make the density matrix for 4C-DHF initial guess.
 
@@ -212,7 +216,7 @@ def get_init_guess(mol, key='minao'):
 
     Kwargs:
         key : str
-            One of 'minao', 'atom', 'hcore', '1e', 'chkfile'.
+            One of 'minao', 'atom', 'huckel', 'hcore', '1e', 'chkfile'.
     '''
     return UHF(mol).get_init_guess(mol, key)
 
@@ -414,6 +418,12 @@ class UHF(hf.SCF):
         if mol is None: mol = self.mol
         return init_guess_by_atom(mol)
 
+    @lib.with_doc(hf.SCF.init_guess_by_huckel.__doc__)
+    def init_guess_by_huckel(self, mol=None):
+        if mol is None: mol = self.mol
+        logger.info(self, 'Initial guess from on-the-fly Huckel, doi:10.1021/acs.jctc.8b01089.')
+        return init_guess_by_huckel(mol)
+
     def init_guess_by_chkfile(self, chkfile=None, project=None):
         if chkfile is None: chkfile = self.chkfile
         return init_guess_by_chkfile(self.mol, chkfile, project=project)
@@ -563,9 +573,10 @@ class UHF(hf.SCF):
         from pyscf.grad import dhf
         return dhf.Gradients(self)
 
-    def reset(self, mol):
+    def reset(self, mol=None):
         '''Reset mol and clean up relevant attributes for scanner mode'''
-        self.mol = mol
+        if mol is not None:
+            self.mol = mol
         self._coulomb_now = 'SSSS' # 'SSSS' ~ LLLL+LLSS+SSSS
         self.opt = None # (opt_llll, opt_ssll, opt_ssss, opt_gaunt)
         return self
