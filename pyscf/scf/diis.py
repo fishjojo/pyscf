@@ -61,11 +61,14 @@ SCFDIIS = SCF_DIIS = DIIS = CDIIS
 
 def get_err_vec(s, d, f):
     '''error vector = SDF - FDS'''
-    if isinstance(f, numpy.ndarray) and f.ndim == 2:
+    if not getattr(f, "ndim", None):
+        raise RuntimeError('Fock matrix must be an array')
+
+    if f.ndim == 2:
         sdf = reduce(numpy.dot, (s,d,f))
         errvec = sdf.T.conj() - sdf
 
-    elif isinstance(f, numpy.ndarray) and f.ndim == 3 and s.ndim == 3:
+    elif f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
             sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
