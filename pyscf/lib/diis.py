@@ -22,14 +22,18 @@ DIIS
 
 import sys
 import numpy
-import scipy.linalg
+from pyscf.lib.linalg_helper import eigh
 from pyscf.lib import logger
 from pyscf.lib import misc
 from pyscf.lib import numpy_helper
+from pyscf.lib.ops import index, index_update, index_add
 from pyscf import __config__
 
 INCORE_SIZE = getattr(__config__, 'lib_diis_incore_size', 10000000)  # 80 MB
 BLOCK_SIZE  = getattr(__config__, 'lib_diis_block_size', 20000000)  # ~ 160/320 MB
+JAXNUMPY = getattr(__config__, 'jaxnumpy', False)
+if JAXNUMPY:
+    import jax.numpy as numpy
 
 # PCCP, 4, 11 (2002); DOI:10.1039/B108658H
 # GEDIIS, JCTC, 2, 835 (2006); DOI:10.1021/ct050275a
@@ -220,14 +224,18 @@ class DIIS(object):
         dt = numpy.array(self.get_err_vec(self._head-1), copy=False)
         if self._H is None:
             self._H = numpy.zeros((self.space+1,self.space+1), dt.dtype)
-            self._H[0,1:] = self._H[1:,0] = 1
+            #self._H[0,1:] = self._H[1:,0] = 1
+            self._H = index_update(self._H, index[1:,0], 1)
+            self._H = index_update(self._H, index[0,1:], 1)
         for i in range(nd):
             tmp = 0
             dti = self.get_err_vec(i)
             for p0, p1 in misc.prange(0, dt.size, BLOCK_SIZE):
                 tmp += numpy.dot(dt[p0:p1].conj(), dti[p0:p1])
-            self._H[self._head,i+1] = tmp
-            self._H[i+1,self._head] = tmp.conjugate()
+            #self._H[self._head,i+1] = tmp
+            #self._H[i+1,self._head] = tmp.conjugate()
+            self._H = index_update(self._H, index[self._head,i+1], tmp)
+            self._H = index_update(self._H, index[i+1,self._head], tmp.conjugate())
         dt = None
 
         if self._xprev is None:
@@ -249,9 +257,10 @@ class DIIS(object):
 
         h = self._H[:nd+1,:nd+1]
         g = numpy.zeros(nd+1, h.dtype)
-        g[0] = 1
+        #g[0] = 1
+        g = index_update(g, index[0], 1)
 
-        w, v = scipy.linalg.eigh(h)
+        w, v = eigh(h)
         if numpy.any(abs(w)<1e-14):
             logger.debug(self, 'Linear dependence found in DIIS error vectors.')
             idx = abs(w)>1e-14
@@ -270,7 +279,8 @@ class DIIS(object):
             if xnew is None:
                 xnew = numpy.zeros(xi.size, c.dtype)
             for p0, p1 in misc.prange(0, xi.size, BLOCK_SIZE):
-                xnew[p0:p1] += xi[p0:p1] * ci
+                #xnew[p0:p1] += xi[p0:p1] * ci
+                xnew = index_add(xnew, index[p0:p1], xi[p0:p1] * ci)
         return xnew
 
     def restore(self, filename, inplace=True):

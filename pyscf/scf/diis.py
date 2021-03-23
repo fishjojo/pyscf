@@ -26,6 +26,11 @@ import scipy.linalg
 import scipy.optimize
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf import __config__
+
+JAXNUMPY = getattr(__config__, "jaxnumpy", False)
+if JAXNUMPY:
+    import jax.numpy as numpy
 
 DEBUG = False
 

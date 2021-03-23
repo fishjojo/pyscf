@@ -109,7 +109,10 @@ TIMER_LEVEL  = getattr(pyscf.__config__, 'TIMER_LEVEL', DEBUG)
 sys.verbose = NOTE
 
 def flush(rec, msg, *args):
-    rec.stdout.write(msg%args)
+    args_list = []
+    for arg in args:
+        args_list.append(getattr(arg, "val", arg))
+    rec.stdout.write(msg % tuple(args_list))
     rec.stdout.write('\n')
     rec.stdout.flush()
 

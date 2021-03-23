@@ -26,6 +26,13 @@ import math
 import numpy
 from pyscf.lib import misc
 from numpy import asarray  # For backward compatibility
+from pyscf import __config__
+
+JAXNUMPY = getattr(__config__, "jaxnumpy", False)
+if JAXNUMPY:
+    import jax.numpy as jnp
+else:
+    jnp = numpy
 
 EINSUM_MAX_SIZE = getattr(misc.__config__, 'lib_einsum_max_size', 2000)
 
@@ -892,10 +899,10 @@ del(LooseVersion)
 
 def cond(x, p=None):
     '''Compute the condition number'''
-    if isinstance(x, numpy.ndarray) and x.ndim == 2 or p is not None:
-        return numpy.linalg.cond(x, p)
+    if getattr(x, "ndim", None) == 2 or p is not None:
+        return jnp.linalg.cond(x, p)
     else:
-        return numpy.asarray([numpy.linalg.cond(xi) for xi in x])
+        return jnp.asarray([jnp.linalg.cond(xi) for xi in x])
 
 def cartesian_prod(arrays, out=None):
     '''
@@ -1093,6 +1100,10 @@ def tag_array(a, **kwargs):
     '''Attach attributes to numpy ndarray. The attribute name and value are
     obtained from the keyword arguments.
     '''
+    if JAXNUMPY:
+        # no tags allowed for jax.numpy.array
+        return a
+
     # Make a shadow copy in any circumstance by converting it to an nparray.
     # If a is an object of NPArrayWithTag, all attributes will be lost in this
     # conversion. They need to be restored.

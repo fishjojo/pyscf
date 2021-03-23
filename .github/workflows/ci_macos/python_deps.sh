@@ -2,6 +2,7 @@
 python -m pip install --upgrade pip
 pip install numpy "scipy==1.1" h5py nose nose-exclude nose-timer nose-cov codecov
 pip install pyberny geometric
+pip install jaxlib jax
 
 #cppe
 version=$(python -c 'import sys; version=sys.version_info[:2]; print("{0}.{1}".format(*version))')

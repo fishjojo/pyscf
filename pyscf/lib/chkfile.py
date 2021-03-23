@@ -117,7 +117,7 @@ def dump(chkfile, key, value):
                 save_as_group('%06d'%k, v, root1)
         else:
             try:
-                root[key] = value
+                root[key] = getattr(value, "val", value)
             except (TypeError, ValueError) as e:
                 if not (e.args[0] == "Object dtype dtype('O') has no native HDF5 equivalent" or
                         e.args[0].startswith('could not broadcast input array')):
