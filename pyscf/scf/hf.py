@@ -46,6 +46,8 @@ MUTE_CHKFILE = getattr(__config__, 'scf_hf_SCF_mute_chkfile', False)
 JAXNUMPY = getattr(__config__, 'jaxnumpy', False)
 if JAXNUMPY:
     import jax.numpy as jnp
+else:
+    jnp = numpy
 
 # For code compatibility in python-2 and python-3
 if sys.version_info >= (3,):
