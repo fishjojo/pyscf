@@ -35,7 +35,6 @@ SAFE_EIGH_LINDEP = getattr(__config__, 'lib_linalg_helper_safe_eigh_lindep', 1e-
 DAVIDSON_LINDEP = getattr(__config__, 'lib_linalg_helper_davidson_lindep', 1e-14)
 DSOLVE_LINDEP = getattr(__config__, 'lib_linalg_helper_dsolve_lindep', 1e-15)
 MAX_MEMORY = getattr(__config__, 'lib_linalg_helper_davidson_max_memory', 2000)  # 2GB
-JAXNUMPY = getattr(__config__, "jaxnumpy", False)
 
 # sort by similarity has problem which flips the ordering of eigenvalues when
 # the initial guess is closed to excited state.  In this situation, function
@@ -570,9 +569,6 @@ def make_diag_precond(diag, level_shift=0):
 
 
 def eigh(a, *args, **kwargs):
-    if JAXNUMPY:
-        from pyscfad.lib.linalg_helper import eigh
-        return eigh(a, *args, **kwargs)
     nroots = kwargs.get('nroots', 1)
     if isinstance(a, numpy.ndarray) and a.ndim == 2:
         e, v = scipy.linalg.eigh(a)

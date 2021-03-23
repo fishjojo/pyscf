@@ -30,7 +30,7 @@ import h5py
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
-from pyscf.lib import linalg_helper
+from pyscf.lib import linalg_helper_ad as linalg_helper
 from pyscf.scf import diis
 from pyscf.scf import _vhf
 from pyscf.scf import chkfile

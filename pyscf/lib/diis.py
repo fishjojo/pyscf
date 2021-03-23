@@ -22,7 +22,7 @@ DIIS
 
 import sys
 import numpy
-from pyscf.lib.linalg_helper import eigh
+from pyscf.lib.linalg_helper_ad import eigh
 from pyscf.lib import logger
 from pyscf.lib import misc
 from pyscf.lib import numpy_helper
