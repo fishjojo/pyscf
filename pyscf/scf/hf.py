@@ -30,12 +30,13 @@ import h5py
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.lib import linalg_helper
 from pyscf.scf import diis
 from pyscf.scf import _vhf
 from pyscf.scf import chkfile
 from pyscf.data import nist
 from pyscf import __config__
-from pyscf.lib.ops import index,index_update
+from pyscf.lib.ops import index,index_update, index_mul
 
 WITH_META_LOWDIN = getattr(__config__, 'scf_analyze_with_meta_lowdin', True)
 PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
@@ -281,8 +282,8 @@ def energy_elec(mf, dm=None, h1e=None, vhf=None):
     if dm is None: dm = mf.make_rdm1()
     if h1e is None: h1e = mf.get_hcore()
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
-    e1 = numpy.einsum('ij,ji->', h1e, dm)
-    e_coul = numpy.einsum('ij,ji->', vhf, dm) * .5
+    e1 = jnp.einsum('ij,ji->', h1e, dm)
+    e_coul = jnp.einsum('ij,ji->', vhf, dm) * .5
     mf.scf_summary['e1'] = e1.real
     mf.scf_summary['e2'] = e_coul.real
     logger.debug(mf, 'E1 = %s  E_coul = %s', e1, e_coul)
@@ -659,7 +660,7 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
 # passed to functions like get_jk, get_vxc.  These functions may take the tags
 # (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
 # array and modifications to DM array may be ignored.
-    return numpy.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
+    return jnp.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
 
 
 ################################################
@@ -966,7 +967,7 @@ def get_grad(mo_coeff, mo_occ, fock_ao):
     '''
     occidx = mo_occ > 0
     viridx = ~occidx
-    g = reduce(numpy.dot, (mo_coeff[:,viridx].conj().T, fock_ao,
+    g = reduce(jnp.dot, (mo_coeff[:,viridx].conj().T, fock_ao,
                            mo_coeff[:,occidx])) * 2
     return g.ravel()
 
@@ -1126,9 +1127,10 @@ def eig(h, s):
 
     .. math:: HC = SCE
     '''
-    e, c = scipy.linalg.eigh(h, s)
-    idx = numpy.argmax(abs(c.real), axis=0)
-    c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
+    e, c = linalg_helper.eigh(h, s)
+    idx = jnp.argmax(abs(c.real), axis=0)
+    #c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
+    c = index_mul(c, index[:,c[idx,jnp.arange(len(e))].real<0], -1.)
     return e, c
 
 def canonicalize(mf, mo_coeff, mo_occ, fock=None):
@@ -1723,7 +1725,7 @@ class SCF(lib.StreamObject):
         if mol is None: mol = self.mol
         if dm is None: dm = self.make_rdm1()
         if self.direct_scf:
-            ddm = numpy.asarray(dm) - dm_last
+            ddm = jnp.asarray(dm) - dm_last
             vj, vk = self.get_jk(mol, ddm, hermi=hermi)
             return vhf_last + vj - vk * .5
         else:

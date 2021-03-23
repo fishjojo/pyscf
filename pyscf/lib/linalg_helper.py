@@ -571,7 +571,7 @@ def make_diag_precond(diag, level_shift=0):
 
 def eigh(a, *args, **kwargs):
     if JAXNUMPY:
-        from pyscfad.lib.np_helper import eigh
+        from pyscfad.lib.linalg_helper import eigh
         return eigh(a, *args, **kwargs)
     nroots = kwargs.get('nroots', 1)
     if isinstance(a, numpy.ndarray) and a.ndim == 2:
