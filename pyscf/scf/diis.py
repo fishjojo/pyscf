@@ -28,9 +28,9 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf import __config__
 
-JAXNUMPY = getattr(__config__, "jaxnumpy", False)
-if JAXNUMPY:
-    import jax.numpy as numpy
+PYSCFAD = getattr(__config__, "pyscfad", False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as numpy
 
 DEBUG = False
 

@@ -28,9 +28,9 @@ from pyscf.lib import misc
 from numpy import asarray  # For backward compatibility
 from pyscf import __config__
 
-JAXNUMPY = getattr(__config__, "jaxnumpy", False)
-if JAXNUMPY:
-    import jax.numpy as jnp
+PYSCFAD = getattr(__config__, "pyscfad", False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
 else:
     jnp = numpy
 
@@ -1100,7 +1100,7 @@ def tag_array(a, **kwargs):
     '''Attach attributes to numpy ndarray. The attribute name and value are
     obtained from the keyword arguments.
     '''
-    if JAXNUMPY:
+    if PYSCFAD:
         # no tags allowed for jax.numpy.array
         return a
 

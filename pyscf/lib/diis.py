@@ -31,9 +31,9 @@ from pyscf import __config__
 
 INCORE_SIZE = getattr(__config__, 'lib_diis_incore_size', 10000000)  # 80 MB
 BLOCK_SIZE  = getattr(__config__, 'lib_diis_block_size', 20000000)  # ~ 160/320 MB
-JAXNUMPY = getattr(__config__, 'jaxnumpy', False)
-if JAXNUMPY:
-    import jax.numpy as numpy
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as numpy
 
 # PCCP, 4, 11 (2002); DOI:10.1039/B108658H
 # GEDIIS, JCTC, 2, 835 (2006); DOI:10.1021/ct050275a

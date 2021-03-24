@@ -43,9 +43,9 @@ PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
 MO_BASE = getattr(__config__, 'MO_BASE', 1)
 TIGHT_GRAD_CONV_TOL = getattr(__config__, 'scf_hf_kernel_tight_grad_conv_tol', True)
 MUTE_CHKFILE = getattr(__config__, 'scf_hf_SCF_mute_chkfile', False)
-JAXNUMPY = getattr(__config__, 'jaxnumpy', False)
-if JAXNUMPY:
-    import jax.numpy as jnp
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
 else:
     jnp = numpy
 

@@ -1,7 +1,7 @@
 from pyscf import __config__
-JAXNUMPY = getattr(__config__, "jaxnumpy", False)
-if JAXNUMPY:
-    import jax
+PYSCFAD = getattr(__config__, "pyscfad", False)
+if PYSCFAD:
+    from pyscfad.lib import ops
 
 class _Indexable(object):
   """
@@ -15,22 +15,22 @@ class _Indexable(object):
 index = _Indexable()
 
 def index_update(a, idx, value):
-    if JAXNUMPY:
-        a = jax.ops.index_update(a, idx, value)
+    if PYSCFAD:
+        a = ops.index_update(a, idx, value)
     else:
         a[idx] = value
     return a
 
 def index_add(a, idx, value):
-    if JAXNUMPY:
-        a = jax.ops.index_add(a, idx, value)
+    if PYSCFAD:
+        a = ops.index_add(a, idx, value)
     else:
         a[idx] += value
     return a
 
 def index_mul(a, idx, value):
-    if JAXNUMPY:
-        a = jax.ops.index_mul(a, idx, value)
+    if PYSCFAD:
+        a = ops.index_mul(a, idx, value)
     else:
         a[idx] *= value
     return a
