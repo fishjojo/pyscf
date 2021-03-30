@@ -7,5 +7,5 @@ pip install jaxlib jax
 #cppe
 version=$(python -c 'import sys; version=sys.version_info[:2]; print("{0}.{1}".format(*version))')
 if [ $version != '2.7' ] && [ $version != '3.5' ]; then
-    pip install git+https://github.com/maxscheurer/cppe.git
+    pip install cppe
 fi
