@@ -23,13 +23,17 @@ import copy
 import numpy
 from pyscf import gto
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, ops
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf import __config__
 
 WITH_T2 = getattr(__config__, 'mp_mp2_with_t2', True)
-
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
+else:
+    jnp = numpy
 
 def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbose=None):
     if mo_energy is not None or mo_coeff is not None:
@@ -48,25 +52,25 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
     eia = mo_energy[:nocc,None] - mo_energy[None,nocc:]
 
     if with_t2:
-        t2 = numpy.empty((nocc,nocc,nvir,nvir), dtype=eris.ovov.dtype)
+        t2 = jnp.empty((nocc,nocc,nvir,nvir), dtype=eris.ovov.dtype)
     else:
         t2 = None
 
     emp2 = 0
     for i in range(nocc):
-        if isinstance(eris.ovov, numpy.ndarray) and eris.ovov.ndim == 4:
+        if hasattr(eris.ovov, "ndim")  and eris.ovov.ndim == 4:
             # When mf._eri is a custom integrals wiht the shape (n,n,n,n), the
             # ovov integrals might be in a 4-index tensor.
             gi = eris.ovov[i]
         else:
-            gi = numpy.asarray(eris.ovov[i*nvir:(i+1)*nvir])
+            gi = jnp.asarray(eris.ovov[i*nvir:(i+1)*nvir])
 
         gi = gi.reshape(nvir,nocc,nvir).transpose(1,0,2)
         t2i = gi.conj()/lib.direct_sum('jb+a->jba', eia, eia[i])
-        emp2 += numpy.einsum('jab,jab', t2i, gi) * 2
-        emp2 -= numpy.einsum('jab,jba', t2i, gi)
+        emp2 += jnp.einsum('jab,jab', t2i, gi) * 2
+        emp2 -= jnp.einsum('jab,jba', t2i, gi)
         if with_t2:
-            t2[i] = t2i
+            t2 = ops.index_update(t2, ops.index[i], t2i)
 
     return emp2.real, t2
 
@@ -632,7 +636,7 @@ class _ChemistsERIs:
             # The canonical MP2 from a converged SCF result. Rebuilding fock
             # and e_hf can be skipped
             self.mo_energy = _mo_energy_without_core(mp, mp._scf.mo_energy)
-            self.fock = numpy.diag(self.mo_energy)
+            self.fock = jnp.diag(self.mo_energy)
             self.e_hf = mp._scf.e_tot
         else:
             dm = mp._scf.make_rdm1(mo_coeff, mp.mo_occ)

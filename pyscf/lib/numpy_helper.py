@@ -1002,12 +1002,12 @@ def direct_sum(subscripts, *operands):
     assert(len(src) == len(operands))
 
     for i, symb in enumerate(src):
-        op = numpy.asarray(operands[i])
+        op = jnp.asarray(operands[i])
         assert(len(symb) == op.ndim)
         unisymb = set(symb)
         if len(unisymb) != len(symb):
             unisymb = ''.join(unisymb)
-            op = _numpy_einsum('->'.join((symb, unisymb)), op)
+            op = jnp.einsum('->'.join((symb, unisymb)), op)
             src[i] = unisymb
         if i == 0:
             if sign[i] == '+':
@@ -1019,8 +1019,8 @@ def direct_sum(subscripts, *operands):
         else:
             out = out.reshape(out.shape+(1,)*op.ndim) - op
 
-    out = _numpy_einsum('->'.join((''.join(src), dest)), out)
-    out.flags.writeable = True  # old numpy has this issue
+    out = jnp.einsum('->'.join((''.join(src), dest)), out)
+    #out.flags.writeable = True  # old numpy has this issue
     return out
 
 def condense(opname, a, loc_x, loc_y=None):
