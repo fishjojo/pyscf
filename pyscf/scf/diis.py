@@ -26,11 +26,14 @@ import scipy.linalg
 import scipy.optimize
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.lib import stop_grad
 from pyscf import __config__
 
 PYSCFAD = getattr(__config__, "pyscfad", False)
 if PYSCFAD:
-    from pyscfad.lib import numpy as numpy
+    from pyscfad.lib import numpy as jnp
+else:
+    jnp = numpy
 
 DEBUG = False
 
@@ -50,7 +53,7 @@ class CDIIS(lib.diis.DIIS):
 
     def update(self, s, d, f, *args, **kwargs):
         errvec = get_err_vec(s, d, f)
-        logger.debug1(self, 'diis-norm(errvec)=%g', numpy.linalg.norm(errvec))
+        logger.debug1(self, 'diis-norm(errvec)=%g', numpy.linalg.norm(stop_grad(errvec)))
         xnew = lib.diis.DIIS.update(self, f, xerr=errvec)
         if self.rollback > 0 and len(self._bookkeep) == self.space:
             self._bookkeep = self._bookkeep[-self.rollback:]
@@ -70,19 +73,20 @@ def get_err_vec(s, d, f):
         raise RuntimeError('Fock matrix must be an array')
 
     if f.ndim == 2:
-        sdf = reduce(numpy.dot, (s,d,f))
+        sdf = reduce(jnp.dot, (s,d,f))
         errvec = sdf.T.conj() - sdf
 
     elif f.ndim == 3 and s.ndim == 3:
         errvec = []
         for i in range(f.shape[0]):
-            sdf = reduce(numpy.dot, (s[i], d[i], f[i]))
+            sdf = reduce(jnp.dot, (s[i], d[i], f[i]))
             errvec.append((sdf.T.conj() - sdf))
-        errvec = numpy.vstack(errvec)
+        errvec = jnp.vstack(errvec)
 
     elif f.ndim == s.ndim+1 and f.shape[0] == 2:  # for UHF
         nao = s.shape[-1]
-        s = lib.asarray((s,s)).reshape(-1,nao,nao)
+        #s = lib.asarray((s,s)).reshape(-1,nao,nao)
+        s = jnp.asarray((s,s)).reshape(-1,nao,nao)
         return get_err_vec(s, d.reshape(s.shape), f.reshape(s.shape))
     else:
         raise RuntimeError('Unknown SCF DIIS type')

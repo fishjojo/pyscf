@@ -37,6 +37,7 @@ from pyscf.scf import chkfile
 from pyscf.data import nist
 from pyscf import __config__
 from pyscf.lib.ops import index,index_update, index_mul
+from pyscf.lib import stop_grad
 
 WITH_META_LOWDIN = getattr(__config__, 'scf_analyze_with_meta_lowdin', True)
 PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
@@ -188,7 +189,8 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         # instead of the statement "fock = h1e + vhf" because Fock matrix may
         # be modified in some methods.
         fock = mf.get_fock(h1e, s1e, vhf, dm)  # = h1e + vhf, no DIIS
-        norm_gorb = jnp.linalg.norm(mf.get_grad(mo_coeff, mo_occ, fock))
+        norm_gorb = numpy.linalg.norm(mf.get_grad(stop_grad(mo_coeff),
+                                      stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
         norm_ddm = jnp.linalg.norm(dm-dm_last)
@@ -222,7 +224,8 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         e_tot, last_hf_e = mf.energy_tot(dm, h1e, vhf), e_tot
 
         fock = mf.get_fock(h1e, s1e, vhf, dm)
-        norm_gorb = jnp.linalg.norm(mf.get_grad(mo_coeff, mo_occ, fock))
+        norm_gorb = numpy.linalg.norm(mf.get_grad(stop_grad(mo_coeff),
+                                      stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
         norm_ddm = jnp.linalg.norm(dm-dm_last)
@@ -286,9 +289,9 @@ def energy_elec(mf, dm=None, h1e=None, vhf=None):
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
     e1 = jnp.einsum('ij,ji->', h1e, dm)
     e_coul = jnp.einsum('ij,ji->', vhf, dm) * .5
-    mf.scf_summary['e1'] = e1.real
-    mf.scf_summary['e2'] = e_coul.real
-    logger.debug(mf, 'E1 = %s  E_coul = %s', e1, e_coul)
+    mf.scf_summary['e1'] = stop_grad(e1.real)
+    mf.scf_summary['e2'] = stop_grad(e_coul.real)
+    logger.debug(mf, 'E1 = %s  E_coul = %s', stop_grad(e1), stop_grad(e_coul))
     return (e1+e_coul).real, e_coul
 
 
@@ -969,8 +972,8 @@ def get_grad(mo_coeff, mo_occ, fock_ao):
     '''
     occidx = mo_occ > 0
     viridx = ~occidx
-    g = reduce(jnp.dot, (mo_coeff[:,viridx].conj().T, fock_ao,
-                           mo_coeff[:,occidx])) * 2
+    g = reduce(numpy.dot, (mo_coeff[:,viridx].conj().T, fock_ao,
+               mo_coeff[:,occidx])) * 2
     return g.ravel()
 
 

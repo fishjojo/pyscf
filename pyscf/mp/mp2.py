@@ -58,7 +58,7 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
 
     emp2 = 0
     for i in range(nocc):
-        if hasattr(eris.ovov, "ndim")  and eris.ovov.ndim == 4:
+        if hasattr(eris.ovov, "ndim") and eris.ovov.ndim == 4:
             # When mf._eri is a custom integrals wiht the shape (n,n,n,n), the
             # ovov integrals might be in a 4-index tensor.
             gi = eris.ovov[i]

@@ -38,6 +38,8 @@ except ImportError:
 from pyscf.lib import param
 from pyscf import __config__
 
+PYSCFAD = getattr(__config__, "pyscfad", False)
+
 if h5py.version.version[:4] == '2.2.':
     sys.stderr.write('h5py-%s is found in your environment. '
                      'h5py-%s has bug in threading mode.\n'
@@ -1060,6 +1062,12 @@ def git_info(repo_path):
         pass
     return orig_head, head, branch
 
+def stop_grad(x):
+    if PYSCFAD:
+        import pyscfad.lib
+        return pyscfad.lib.stop_grad(x)
+    else:
+        return x
 
 if __name__ == '__main__':
     for i,j in prange_tril(0, 90, 300):
