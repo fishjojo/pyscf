@@ -193,7 +193,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
                                       stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        norm_ddm = jnp.linalg.norm(dm-dm_last)
+        norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
         logger.info(mf, 'cycle= %d E= %.15g  delta_E= %4.3g  |g|= %4.3g  |ddm|= %4.3g',
                     cycle+1, e_tot, e_tot-last_hf_e, norm_gorb, norm_ddm)
 
@@ -228,7 +228,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
                                       stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        norm_ddm = jnp.linalg.norm(dm-dm_last)
+        norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
 
         conv_tol = conv_tol * 10
         conv_tol_grad = conv_tol_grad * 3
@@ -289,8 +289,8 @@ def energy_elec(mf, dm=None, h1e=None, vhf=None):
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
     e1 = jnp.einsum('ij,ji->', h1e, dm)
     e_coul = jnp.einsum('ij,ji->', vhf, dm) * .5
-    mf.scf_summary['e1'] = stop_grad(e1.real)
-    mf.scf_summary['e2'] = stop_grad(e_coul.real)
+    mf.scf_summary['e1'] = stop_grad(e1).real
+    mf.scf_summary['e2'] = stop_grad(e_coul).real
     logger.debug(mf, 'E1 = %s  E_coul = %s', stop_grad(e1), stop_grad(e_coul))
     return (e1+e_coul).real, e_coul
 
@@ -660,13 +660,15 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
         mo_occ : 1D ndarray
             Occupancy
     '''
+    if PYSCFAD:
+        return jnp.dot(mo_coeff*mo_occ, mo_coeff.conj().T)
+
     mocc = mo_coeff[:,mo_occ>0]
 # DO NOT make tag_array for dm1 here because this DM array may be modified and
 # passed to functions like get_jk, get_vxc.  These functions may take the tags
 # (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
 # array and modifications to DM array may be ignored.
     return jnp.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
-
 
 ################################################
 # for general DM
@@ -1133,9 +1135,10 @@ def eig(h, s):
     .. math:: HC = SCE
     '''
     e, c = linalg_helper.eigh(h, s)
-    idx = jnp.argmax(abs(c.real), axis=0)
-    #c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
-    c = index_mul(c, index[:,c[idx,jnp.arange(len(e))].real<0], -1.)
+    if not PYSCFAD:
+        idx = numpy.argmax(abs(c.real), axis=0)
+        c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
+    #c = index_mul(c, index[:,c[idx,jnp.arange(len(e))].real<0], -1.)
     return e, c
 
 def canonicalize(mf, mo_coeff, mo_occ, fock=None):
