@@ -31,7 +31,7 @@ from pyscf.pbc.lib.kpts_helper import gamma_point
 from pyscf import __config__
 
 KE_SCALING = getattr(__config__, 'pbc_df_aft_ke_cutoff_scaling', 0.75)
-
+PYSCFAD = getattr(__config__, 'pyscfad', False)
 
 def get_nuc(mydf, kpts=None):
     if kpts is None:
@@ -234,13 +234,18 @@ class FFTDF(lib.StreamObject):
         return self
 
     def aoR_loop(self, grids=None, kpts=None, deriv=0, cell=None):
-        if cell is None:
-            cell = self.cell
-        if grids is None:
-            grids = self.grids
-        #    cell = self.cell
-        #else:
-        #    cell = grids.cell
+        if PYSCFAD:
+            if cell is None: 
+                cell = self.cell
+            if grids is None:
+                grids = self.grids
+        else:
+            if grids is None:
+                grids = self.grids
+                cell = self.cell
+            else:
+                cell = grids.cell
+
         if grids.non0tab is None:
             grids.build(with_non0tab=True)
 
