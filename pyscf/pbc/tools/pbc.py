@@ -439,6 +439,8 @@ def precompute_exx(cell, kpts):
 def madelung(cell, kpts):
     Nk = get_monkhorst_pack_size(cell, kpts)
     ecell = copy.copy(cell)
+    if hasattr(ecell, "coords"):
+        ecell.coords = None
     ecell._atm = np.array([[1, cell._env.size, 0, 0, 0, 0]])
     ecell._env = np.append(cell._env, [0., 0., 0.])
     ecell.unit = 'B'

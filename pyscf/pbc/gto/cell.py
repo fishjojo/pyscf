@@ -32,7 +32,7 @@ import scipy.optimize
 import pyscf.lib.parameters as param
 from pyscf import lib
 from pyscf.dft import radi
-from pyscf.lib import logger
+from pyscf.lib import logger, ops
 from pyscf.gto import mole
 from pyscf.gto import moleintor
 from pyscf.gto.mole import (_symbol, _rm_digit, _atom_symbol, _std_symbol,
@@ -51,7 +51,15 @@ WRAP_AROUND = getattr(__config__, 'pbc_gto_cell_make_kpts_wrap_around', False)
 WITH_GAMMA = getattr(__config__, 'pbc_gto_cell_make_kpts_with_gamma', True)
 EXP_DELIMITER = getattr(__config__, 'pbc_gto_cell_split_basis_exp_delimiter',
                         [1.0, 0.5, 0.25, 0.1, 0])
-
+PYSCFAD = getattr(__config__, "pyscfad", False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
+    from jax.scipy.special import erf as jax_erf
+    from jax.scipy.special import erfc as jax_erfc
+else:
+    jnp = np
+    jax_erf = erf
+    jax_erfc = erfc
 
 # For code compatiblity in python-2 and python-3
 if sys.version_info >= (3,):
@@ -757,10 +765,12 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     Lall = cell.get_lattice_Ls(rcut=ew_cut)
 
     rLij = coords[:,None,:] - coords[None,:,:] + Lall[:,None,None,:]
-    r = np.sqrt(np.einsum('Lijx,Lijx->Lij', rLij, rLij))
+    r = jnp.sqrt(jnp.einsum('Lijx,Lijx->Lij', rLij, rLij))
     rLij = None
-    r[r<1e-16] = 1e200
-    ewovrl = .5 * np.einsum('i,j,Lij->', chargs, chargs, erfc(ew_eta * r) / r)
+    #r[r<1e-16] = 1e200
+    idx = ops.index[r<1e-16]
+    r = ops.index_update(r, idx, 1e200)
+    ewovrl = .5 * jnp.einsum('i,j,Lij->', chargs, chargs, jax_erfc(ew_eta * r) / r)
 
     # last line of Eq. (F.5) in Martin
     ewself  = -.5 * np.dot(chargs,chargs) * 2 * ew_eta / np.sqrt(np.pi)
@@ -784,27 +794,32 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     if cell.dimension != 2 or cell.low_dim_ft_type == 'inf_vacuum':
         coulG = 4*np.pi / absG2
         coulG *= weights
-        ZSI = np.einsum("i,ij->j", chargs, cell.get_SI(Gv))
+        ZSI = jnp.einsum("i,ij->j", chargs, cell.get_SI(Gv))
         ZexpG2 = ZSI * np.exp(-absG2/(4*ew_eta**2))
-        ewg = .5 * np.einsum('i,i,i', ZSI.conj(), ZexpG2, coulG).real
+        ewg = .5 * jnp.einsum('i,i,i', ZSI.conj(), ZexpG2, coulG).real
 
     elif cell.dimension == 2:  # Truncated Coulomb
         # The following 2D ewald summation is taken from:
         # R. Sundararaman and T. Arias PRB 87, 2013
         def fn(eta,Gnorm,z):
             Gnorm_z = Gnorm*z
-            large_idx = Gnorm_z > 20.0
-            ret = np.zeros_like(Gnorm_z)
+            large_idx = ops.index[Gnorm_z > 20.0]
+            ok_idx = ops.index[Gnorm_z <= 20.0]
+            ret = jnp.zeros_like(Gnorm_z)
             x = Gnorm/2./eta + eta*z
             with np.errstate(over='ignore'):
-                erfcx = erfc(x)
-                ret[~large_idx] = np.exp(Gnorm_z[~large_idx]) * erfcx[~large_idx]
-                ret[ large_idx] = np.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx]
+                erfcx = jax_erfc(x)
+                #ret[~large_idx] = np.exp(Gnorm_z[~large_idx]) * erfcx[~large_idx]
+                ret = ops.index_update(ret, ok_idx,
+                                       jnp.exp(Gnorm_z[ok_idx]) * erfcx[ok_idx])
+                #ret[ large_idx] = np.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx]
+                ret = ops.index_update(ret, large_idx,
+                                       jnp.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx])
             return ret
         def gn(eta,Gnorm,z):
             return np.pi/Gnorm*(fn(eta,Gnorm,z) + fn(eta,Gnorm,-z))
         def gn0(eta,z):
-            return -2*np.pi*(z*erf(eta*z) + np.exp(-(eta*z)**2)/eta/np.sqrt(np.pi))
+            return -2*np.pi*(z*jax_erf(eta*z) + jnp.exp(-(eta*z)**2)/eta/np.sqrt(np.pi))
         b = cell.reciprocal_vectors()
         inv_area = np.linalg.norm(np.cross(b[0], b[1]))/(2*np.pi)**2
         # Perform the reciprocal space summation over  all reciprocal vectors
@@ -815,11 +830,11 @@ def ewald(cell, ew_eta=None, ew_cut=None):
         absG = absG2**(0.5)
         # Performing the G != 0 summation.
         rij = coords[:,None,:] - coords[None,:,:]
-        Gdotr = np.einsum('ijx,gx->ijg', rij, Gv)
-        ewg = np.einsum('i,j,ijg,ijg->', chargs, chargs, np.cos(Gdotr),
+        Gdotr = jnp.einsum('ijx,gx->ijg', rij, Gv)
+        ewg = jnp.einsum('i,j,ijg,ijg->', chargs, chargs, jnp.cos(Gdotr),
                         gn(ew_eta,absG,rij[:,:,2:3]))
         # Performing the G == 0 summation.
-        ewg += np.einsum('i,j,ij->', chargs, chargs, gn0(ew_eta,rij[:,:,2]))
+        ewg += jnp.einsum('i,j,ij->', chargs, chargs, gn0(ew_eta,rij[:,:,2]))
         ewg *= inv_area*0.5
 
     else:

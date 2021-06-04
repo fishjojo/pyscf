@@ -235,7 +235,7 @@ class FFTDF(lib.StreamObject):
 
     def aoR_loop(self, grids=None, kpts=None, deriv=0, cell=None):
         if PYSCFAD:
-            if cell is None: 
+            if cell is None:
                 cell = self.cell
             if grids is None:
                 grids = self.grids

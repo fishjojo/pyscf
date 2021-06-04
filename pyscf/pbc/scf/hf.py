@@ -32,6 +32,7 @@ import h5py
 from pyscf.scf import hf as mol_hf
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.lib import stop_grad
 from pyscf.data import nist
 from pyscf.pbc import gto
 from pyscf.pbc import tools
@@ -51,7 +52,7 @@ def get_ovlp(cell, kpt=np.zeros(3)):
 # Avoid pbcopt's prescreening in the lattice sum, for better accuracy
     s = cell.pbc_intor('int1e_ovlp', hermi=1, kpts=kpt,
                        pbcopt=lib.c_null_ptr())
-    cond = np.max(lib.cond(s))
+    cond = np.max(lib.cond(stop_grad(s)))
     if cond * cell.precision > 1e2:
         prec = 1e2 / cond
         rmin = max([cell.bas_rcut(ib, prec) for ib in range(cell.nbas)])
