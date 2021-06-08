@@ -832,7 +832,7 @@ def ewald(cell, ew_eta=None, ew_cut=None):
         rij = coords[:,None,:] - coords[None,:,:]
         Gdotr = jnp.einsum('ijx,gx->ijg', rij, Gv)
         ewg = jnp.einsum('i,j,ijg,ijg->', chargs, chargs, jnp.cos(Gdotr),
-                        gn(ew_eta,absG,rij[:,:,2:3]))
+                         gn(ew_eta,absG,rij[:,:,2:3]))
         # Performing the G == 0 summation.
         ewg += jnp.einsum('i,j,ij->', chargs, chargs, gn0(ew_eta,rij[:,:,2]))
         ewg *= inv_area*0.5

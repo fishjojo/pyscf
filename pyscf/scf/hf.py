@@ -125,7 +125,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         conv_tol_grad = numpy.sqrt(conv_tol)
         logger.info(mf, 'Set gradient conv threshold to %g', conv_tol_grad)
 
-    mol = mf.mol
+    mol = getattr(mf, "cell", mf.mol)
     if dm0 is None:
         dm = mf.get_init_guess(mol, mf.init_guess)
     else:
