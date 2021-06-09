@@ -762,15 +762,8 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     if ew_cut is None: ew_cut = cell.get_ewald_params()[1]
     chargs = cell.atom_charges()
     coords = cell.atom_coords()
-    Lall = cell.get_lattice_Ls(rcut=ew_cut)
 
-    rLij = coords[:,None,:] - coords[None,:,:] + Lall[:,None,None,:]
-    r = jnp.sqrt(jnp.einsum('Lijx,Lijx->Lij', rLij, rLij))
-    rLij = None
-    #r[r<1e-16] = 1e200
-    idx = ops.index[r<1e-16]
-    r = ops.index_update(r, idx, 1e200)
-    ewovrl = .5 * jnp.einsum('i,j,Lij->', chargs, chargs, jax_erfc(ew_eta * r) / r)
+    ewovrl = cell._ewald_sr(coords, chargs, ew_eta, ew_cut)
 
     # last line of Eq. (F.5) in Martin
     ewself  = -.5 * np.dot(chargs,chargs) * 2 * ew_eta / np.sqrt(np.pi)
@@ -845,6 +838,26 @@ def ewald(cell, ew_eta=None, ew_cut=None):
 
     logger.debug(cell, 'Ewald components = %.15g, %.15g, %.15g', ewovrl, ewself, ewg)
     return ewovrl + ewself + ewg
+
+def _ewald_sr(cell, coords=None, charges=None, ew_eta=None, ew_cut=None, Lall=None):
+    if coords is None:
+        coords = cell.atom_coords()
+    if charges is None:
+        charges = cell.atom_charges()
+    if ew_eta is None:
+        ew_eta = cell.get_ewald_params()[0]
+    if ew_cut is None:
+        ew_cut = cell.get_ewald_params()[1]
+    if Lall is None:
+        Lall = cell.get_lattice_Ls(rcut=ew_cut)
+
+    rLij = coords[:,None,:] - coords[None,:,:] + Lall[:,None,None,:]
+    r = jnp.sqrt(jnp.einsum('Lijx,Lijx->Lij', rLij, rLij))
+    rLij = None
+    #r[r<1e-16] = 1e200
+    r = jnp.where(r > 1e-16, r, 1e200)
+    ewovrl = .5 * jnp.einsum('i,j,Lij->', charges, charges, jax_erfc(ew_eta *  r) / r)
+    return ewovrl
 
 energy_nuc = ewald
 
@@ -1625,6 +1638,7 @@ class Cell(mole.Mole):
     get_SI = get_SI
 
     ewald = ewald
+    _ewald_sr = _ewald_sr
     energy_nuc = ewald
 
     gen_uniform_grids = get_uniform_grids = get_uniform_grids
