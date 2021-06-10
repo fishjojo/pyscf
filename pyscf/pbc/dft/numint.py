@@ -1212,7 +1212,7 @@ class KNumInt(numint.NumInt):
         if getattr(dms, 'mo_coeff', None) is not None:
             mo_coeff = dms.mo_coeff
             mo_occ = dms.mo_occ
-            if isinstance(dms[0], numpy.ndarray) and dms[0].ndim == 2:
+            if hasattr(dms[0], 'ndim') and dms[0].ndim == 2:
                 mo_coeff = [mo_coeff]
                 mo_occ = [mo_occ]
             nao = cell.nao_nr()
@@ -1222,7 +1222,7 @@ class KNumInt(numint.NumInt):
                 return self.eval_rho2(cell, ao, mo_coeff[idm], mo_occ[idm],
                                       non0tab, xctype)
         else:
-            if isinstance(dms[0], numpy.ndarray) and dms[0].ndim == 2:
+            if hasattr(dms[0], 'ndim') and dms[0].ndim == 2:
                 dms = [numpy.stack(dms)]
             #if not hermi:
             # Density (or response of density) is always real for DFT.

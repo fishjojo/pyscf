@@ -35,6 +35,7 @@ from pyscf.pbc.scf import hf as pbchf
 from pyscf import lib
 from pyscf.scf import hf as mol_hf
 from pyscf.lib import logger
+from pyscf.lib import stop_grad
 from pyscf.pbc.gto import ecp
 from pyscf.pbc.scf import addons
 from pyscf.pbc.scf import chkfile  # noqa
@@ -46,7 +47,11 @@ from pyscf import __config__
 WITH_META_LOWDIN = getattr(__config__, 'pbc_scf_analyze_with_meta_lowdin', True)
 PRE_ORTH_METHOD = getattr(__config__, 'pbc_scf_analyze_pre_orth_method', 'ANO')
 CHECK_COULOMB_IMAG = getattr(__config__, 'pbc_scf_check_coulomb_imag', True)
-
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
+else:
+    jnp = np
 
 def get_ovlp(mf, cell=None, kpts=None):
     '''Get the overlap AO matrices at sampled k-points.
@@ -62,7 +67,7 @@ def get_ovlp(mf, cell=None, kpts=None):
 # Avoid pbcopt's prescreening in the lattice sum, for better accuracy
     s = cell.pbc_intor('int1e_ovlp', hermi=1, kpts=kpts,
                        pbcopt=lib.c_null_ptr())
-    cond = np.max(lib.cond(s))
+    cond = np.max(lib.cond(stop_grad(s)))
     if cond * cell.precision > 1e2:
         prec = 1e2 / cond
         rmin = max([cell.bas_rcut(ib, prec) for ib in range(cell.nbas)])
@@ -73,7 +78,7 @@ def get_ovlp(mf, cell=None, kpts=None):
                         'improve accuracy.  Recommended values are\n      '
                         'cell.precision = %.2g  or smaller.\n      '
                         'cell.rcut = %.4g  or larger.', prec, rmin)
-    return lib.asarray(s)
+    return jnp.asarray(s)
 
 
 def get_hcore(mf, cell=None, kpts=None):
@@ -247,7 +252,7 @@ def make_rdm1(mo_coeff_kpts, mo_occ_kpts, **kwargs):
     nkpts = len(mo_occ_kpts)
     dm_kpts = [mol_hf.make_rdm1(mo_coeff_kpts[k], mo_occ_kpts[k])
                for k in range(nkpts)]
-    return lib.asarray(dm_kpts)
+    return jnp.asarray(dm_kpts)
 
 
 def energy_elec(mf, dm_kpts=None, h1e_kpts=None, vhf_kpts=None):
@@ -258,8 +263,8 @@ def energy_elec(mf, dm_kpts=None, h1e_kpts=None, vhf_kpts=None):
     if vhf_kpts is None: vhf_kpts = mf.get_veff(mf.cell, dm_kpts)
 
     nkpts = len(dm_kpts)
-    e1 = 1./nkpts * np.einsum('kij,kji', dm_kpts, h1e_kpts)
-    e_coul = 1./nkpts * np.einsum('kij,kji', dm_kpts, vhf_kpts) * 0.5
+    e1 = 1./nkpts * jnp.einsum('kij,kji', dm_kpts, h1e_kpts)
+    e_coul = 1./nkpts * jnp.einsum('kij,kji', dm_kpts, vhf_kpts) * 0.5
     mf.scf_summary['e1'] = e1.real
     mf.scf_summary['e2'] = e_coul.real
     logger.debug(mf, 'E1 = %s  E_coul = %s', e1, e_coul)
