@@ -147,7 +147,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     h1e_kpts, s_kpts, vhf_kpts, dm_kpts = h1e, s1e, vhf, dm
     if h1e_kpts is None: h1e_kpts = mf.get_hcore()
     if vhf_kpts is None: vhf_kpts = mf.get_veff(mf.cell, dm_kpts)
-    f_kpts = h1e_kpts + vhf_kpts
+    f_kpts = h1e_kpts + getattr(vhf_kpts, 'vxc', vhf_kpts)
     if cycle < 0 and diis is None:  # Not inside the SCF iteration
         return f_kpts
 
