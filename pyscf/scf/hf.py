@@ -1189,17 +1189,17 @@ def dip_moment(mol, dm, unit='Debye', verbose=logger.NOTE, **kwargs):
                  'unit since PySCF-1.5.')
         unit = kwargs['unit_symbol']
 
-    if not (isinstance(dm, numpy.ndarray) and dm.ndim == 2):
+    if not (getattr(dm, 'ndim', None) == 2):
         # UHF denisty matrices
         dm = dm[0] + dm[1]
 
     with mol.with_common_orig((0,0,0)):
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-    el_dip = numpy.einsum('xij,ji->x', ao_dip, dm).real
+    el_dip = jnp.einsum('xij,ji->x', ao_dip, dm).real
 
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
-    nucl_dip = numpy.einsum('i,ix->x', charges, coords)
+    nucl_dip = jnp.einsum('i,ix->x', charges, coords)
     mol_dip = nucl_dip - el_dip
 
     if unit.upper() == 'DEBYE':

@@ -181,7 +181,7 @@ class DIIS(object):
             xkey = 'x%d'%self._head
             self._store(xkey, x)
             if x.size < INCORE_SIZE or self.incore:
-                self._store(ekey, x - numpy.asarray(self._xprev))
+                self._store(ekey, x - jnp.asarray(self._xprev))
             else:  # not call _store to reduce memory footprint
                 if ekey not in self._diisfile:
                     self._diisfile.create_dataset(ekey, (x.size,), x.dtype)

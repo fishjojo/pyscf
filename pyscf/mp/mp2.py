@@ -89,16 +89,16 @@ def _iterative_kernel(mp, eris, verbose=None):
     for istep in range(mp.max_cycle):
         t2new = mp.update_amps(t2, eris)
 
-        if isinstance(t2new, numpy.ndarray):
-            normt = numpy.linalg.norm(t2new - t2)
+        if hasattr(t2new, 'ndim'):
+            normt = jnp.linalg.norm(t2new - t2)
             t2 = None
             t2new = adiis.update(t2new)
         else: # UMP2
-            normt = numpy.linalg.norm([numpy.linalg.norm(t2new[i] - t2[i])
-                                       for i in range(3)])
+            normt = jnp.linalg.norm([jnp.linalg.norm(t2new[i] - t2[i])
+                                     for i in range(3)])
             t2 = None
             t2shape = [x.shape for x in t2new]
-            t2new = numpy.hstack([x.ravel() for x in t2new])
+            t2new = jnp.hstack([x.ravel() for x in t2new])
             t2new = adiis.update(t2new)
             t2new = lib.split_reshape(t2new, t2shape)
 
@@ -116,9 +116,9 @@ def _iterative_kernel(mp, eris, verbose=None):
 def energy(mp, t2, eris):
     '''MP2 energy'''
     nocc, nvir = t2.shape[1:3]
-    eris_ovov = numpy.asarray(eris.ovov).reshape(nocc,nvir,nocc,nvir)
-    emp2  = numpy.einsum('ijab,iajb', t2, eris_ovov) * 2
-    emp2 -= numpy.einsum('ijab,ibja', t2, eris_ovov)
+    eris_ovov = jnp.asarray(eris.ovov).reshape(nocc,nvir,nocc,nvir)
+    emp2  = jnp.einsum('ijab,iajb', t2, eris_ovov) * 2
+    emp2 -= jnp.einsum('ijab,ibja', t2, eris_ovov)
     return emp2.real
 
 def update_amps(mp, t2, eris):
@@ -129,13 +129,13 @@ def update_amps(mp, t2, eris):
     mo_e_o = eris.mo_energy[:nocc]
     mo_e_v = eris.mo_energy[nocc:] + mp.level_shift
 
-    foo = fock[:nocc,:nocc] - numpy.diag(mo_e_o)
-    fvv = fock[nocc:,nocc:] - numpy.diag(mo_e_v)
-    t2new  = lib.einsum('ijac,bc->ijab', t2, fvv)
-    t2new -= lib.einsum('ki,kjab->ijab', foo, t2)
+    foo = fock[:nocc,:nocc] - jnp.diag(mo_e_o)
+    fvv = fock[nocc:,nocc:] - jnp.diag(mo_e_v)
+    t2new  = jnp.einsum('ijac,bc->ijab', t2, fvv)
+    t2new -= jnp.einsum('ki,kjab->ijab', foo, t2)
     t2new = t2new + t2new.transpose(1,0,3,2)
 
-    eris_ovov = numpy.asarray(eris.ovov).reshape(nocc,nvir,nocc,nvir)
+    eris_ovov = jnp.asarray(eris.ovov).reshape(nocc,nvir,nocc,nvir)
     t2new += eris_ovov.conj().transpose(0,2,1,3)
     eris_ovov = None
 
