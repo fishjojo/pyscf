@@ -1054,7 +1054,8 @@ def dumps(mol):
     '''
     exclude_keys = set(('output', 'stdout', '_keys',
                         # Constructing in function loads
-                        'symm_orb', 'irrep_id', 'irrep_name'))
+                        'symm_orb', 'irrep_id', 'irrep_name',
+                        'coords', 'exp', 'ctr_coeff'))
     nparray_keys = set(('_atm', '_bas', '_env', '_ecpbas',
                         '_symm_orig', '_symm_axes'))
 

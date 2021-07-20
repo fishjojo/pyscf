@@ -29,6 +29,7 @@ import numpy
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.lib import stop_grad
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf.cc import _ccsd
@@ -37,7 +38,11 @@ from pyscf import __config__
 
 BLKMIN = getattr(__config__, 'cc_ccsd_blkmin', 4)
 MEMORYMIN = getattr(__config__, 'cc_ccsd_memorymin', 2000)
-
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
+else:
+    jnp = numpy
 
 # t1: ia
 # t2: ijab
@@ -69,7 +74,7 @@ def kernel(mycc, eris=None, t1=None, t2=None, max_cycle=50, tol=1e-8,
         t1new, t2new = mycc.update_amps(t1, t2, eris)
         tmpvec = mycc.amplitudes_to_vector(t1new, t2new)
         tmpvec -= mycc.amplitudes_to_vector(t1, t2)
-        normt = numpy.linalg.norm(tmpvec)
+        normt = jnp.linalg.norm(tmpvec)
         tmpvec = None
         if mycc.iterative_damping < 1.0:
             alpha = mycc.iterative_damping
@@ -702,14 +707,14 @@ def energy(mycc, t1=None, t2=None, eris=None):
 
     nocc, nvir = t1.shape
     fock = eris.fock
-    e = numpy.einsum('ia,ia', fock[:nocc,nocc:], t1) * 2
+    e = jnp.einsum('ia,ia', fock[:nocc,nocc:], t1) * 2
     max_memory = mycc.max_memory - lib.current_memory()[0]
     blksize = int(min(nvir, max(BLKMIN, max_memory*.3e6/8/(nocc**2*nvir+1))))
     for p0, p1 in lib.prange(0, nvir, blksize):
         eris_ovvo = eris.ovvo[:,p0:p1]
-        tau = t2[:,:,p0:p1] + numpy.einsum('ia,jb->ijab', t1[:,p0:p1], t1)
-        e += 2 * numpy.einsum('ijab,iabj', tau, eris_ovvo)
-        e -=     numpy.einsum('jiab,iabj', tau, eris_ovvo)
+        tau = t2[:,:,p0:p1] + jnp.einsum('ia,jb->ijab', t1[:,p0:p1], t1)
+        e += 2 * jnp.einsum('ijab,iabj', tau, eris_ovvo)
+        e -=     jnp.einsum('jiab,iabj', tau, eris_ovvo)
     if abs(e.imag) > 1e-4:
         logger.warn(mycc, 'Non-zero imaginary part found in CCSD energy %s', e)
     return e.real
@@ -1002,18 +1007,18 @@ http://sunqm.net/pyscf/code-rule.html#api-rules for the details of API conventio
         time0 = logger.process_clock(), logger.perf_counter()
         if eris is None:
             eris = self.ao2mo(self.mo_coeff)
-        mo_e = eris.mo_energy
+        mo_e = stop_grad(eris.mo_energy)
         nocc = self.nocc
         nvir = mo_e.size - nocc
         eia = mo_e[:nocc,None] - mo_e[None,nocc:]
 
-        t1 = eris.fock[:nocc,nocc:] / eia
+        t1 = stop_grad(eris.fock[:nocc,nocc:]) / eia
         t2 = numpy.empty((nocc,nocc,nvir,nvir), dtype=eris.ovov.dtype)
         max_memory = self.max_memory - lib.current_memory()[0]
         blksize = int(min(nvir, max(BLKMIN, max_memory*.3e6/8/(nocc**2*nvir+1))))
         emp2 = 0
         for p0, p1 in lib.prange(0, nvir, blksize):
-            eris_ovov = eris.ovov[:,p0:p1]
+            eris_ovov = stop_grad(eris.ovov[:,p0:p1])
             t2[:,:,p0:p1] = (eris_ovov.transpose(0,2,1,3).conj()
                              / lib.direct_sum('ia,jb->ijab', eia[:,p0:p1], eia))
             emp2 += 2 * numpy.einsum('ijab,iajb', t2[:,:,p0:p1], eris_ovov)
@@ -1275,6 +1280,7 @@ class _ChemistsERIs:
     def __init__(self, mol=None):
         self.mol = mol
         self.mo_coeff = None
+        self.mo_energy = None
         self.nocc = None
         self.fock = None
         self.e_hf = None
