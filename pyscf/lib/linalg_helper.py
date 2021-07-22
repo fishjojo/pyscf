@@ -751,7 +751,7 @@ def davidson_nosym1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
 
     if callable(x0):
         x0 = x0()
-    if isinstance(x0, numpy.ndarray) and x0.ndim == 1:
+    if getattr(x0, "ndim", None) == 1:
         x0 = [x0]
     #max_cycle = min(max_cycle, x0[0].size)
     max_space = max_space + (nroots-1) * 4

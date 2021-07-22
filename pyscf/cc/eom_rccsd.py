@@ -18,9 +18,7 @@
 #         Timothy Berkelbach <tim.berkelbach@gmail.com>
 #
 
-
-import numpy as np
-
+import numpy
 from pyscf import lib
 from pyscf import ao2mo
 from pyscf.lib import logger
@@ -28,6 +26,13 @@ from pyscf.cc import ccsd
 from pyscf.cc import rintermediates as imd
 from pyscf import __config__
 
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as np
+#    from pyscfad.cc import rintermediates as imd
+else:
+    np = numpy
+#    from pyscf.cc import rintermediates as imd
 
 def kernel(eom, nroots=1, koopmans=False, guess=None, left=False,
            eris=None, imds=None, **kwargs):
@@ -72,7 +77,7 @@ def kernel(eom, nroots=1, koopmans=False, guess=None, left=False,
                            max_space=eom.max_space, nroots=nroots, verbose=log)
     else:
         def pickeig(w, v, nroots, envs):
-            real_idx = np.where(abs(w.imag) < 1e-3)[0]
+            real_idx = numpy.where(abs(w.imag) < 1e-3)[0]
             return lib.linalg_helper._eigs_cmplx2real(w, v, real_idx, real_system)
         conv, es, vs = eig(matvec, guess, precond, pick=pickeig,
                            tol=eom.conv_tol, max_cycle=eom.max_cycle,
@@ -523,13 +528,13 @@ class EOMIP(EOM):
         guess = []
         if koopmans:
             for n in range(nroots):
-                g = np.zeros(int(size), dtype)
+                g = numpy.zeros(int(size), dtype)
                 g[self.nocc-n-1] = 1.0
                 guess.append(g)
         else:
             idx = diag.argsort()[:nroots]
             for i in idx:
-                g = np.zeros(int(size), dtype)
+                g = numpy.zeros(int(size), dtype)
                 g[i] = 1.0
                 guess.append(g)
         return guess
@@ -1073,8 +1078,9 @@ def amplitudes_to_vector_eomsf(t1, t2, out=None):
     t2baaa, t2aaba = t2
     otril = np.tril_indices(nocc, k=-1)
     vtril = np.tril_indices(nvir, k=-1)
-    baaa = np.take(t2baaa.reshape(nocc*nocc,nvir*nvir),
-                   vtril[0]*nvir+vtril[1], axis=1)
+    #baaa = np.take(t2baaa.reshape(nocc*nocc,nvir*nvir),
+    #               vtril[0]*nvir+vtril[1], axis=1)
+    baaa = t2baaa.reshape(nocc*nocc,nvir*nvir)[:,vtril[0]*nvir+vtril[1]]
     vector = np.hstack((t1.ravel(), baaa.ravel(), t2aaba[otril].ravel()))
     return vector
 
