@@ -909,8 +909,8 @@ def davidson_nosym1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
 
         for i in range(space):
             xsi = numpy.asarray(xs[i])
-            for xi in xt:
-                xi -= xsi * dot(xsi.conj(), xi)
+            for k, xi in enumerate(xt):
+                xt[k] = xi - xsi * dot(xsi.conj(), xi)
             xsi = None
         norm_min = 1
         for i,xi in enumerate(xt):

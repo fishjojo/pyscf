@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+sudo apt-get uodate
 sudo apt-get -qq install \
     gcc \
     gfortran \
