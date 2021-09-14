@@ -931,7 +931,7 @@ def get_occ(mf, mo_energy=None, mo_coeff=None):
     array([2, 2, 0, 2, 2, 2])
     '''
     if mo_energy is None: mo_energy = mf.mo_energy
-    e_idx  = jnp.argsort(mo_energy)
+    e_idx  = numpy.argsort(mo_energy)
     e_sort = mo_energy[e_idx]
     nmo = mo_energy.size
     mo_occ = numpy.zeros(nmo)
