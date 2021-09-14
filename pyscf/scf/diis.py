@@ -69,6 +69,9 @@ SCFDIIS = SCF_DIIS = DIIS = CDIIS
 
 def get_err_vec(s, d, f):
     '''error vector = SDF - FDS'''
+    s = numpy.asarray(s)
+    d = numpy.asarray(d)
+    f = numpy.asarray(f)
     if not getattr(f, "ndim", None):
         raise RuntimeError('Fock matrix must be an array')
 

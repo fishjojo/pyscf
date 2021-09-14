@@ -44,6 +44,7 @@ PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
 MO_BASE = getattr(__config__, 'MO_BASE', 1)
 TIGHT_GRAD_CONV_TOL = getattr(__config__, 'scf_hf_kernel_tight_grad_conv_tol', True)
 MUTE_CHKFILE = getattr(__config__, 'scf_hf_SCF_mute_chkfile', False)
+
 PYSCFAD = getattr(__config__, 'pyscfad', False)
 if PYSCFAD:
     from pyscfad.lib import numpy as jnp
@@ -193,7 +194,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
                                       stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
+        norm_ddm = numpy.linalg.norm(stop_grad(numpy.asarray(dm))-stop_grad(numpy.asarray(dm_last)))
         logger.info(mf, 'cycle= %d E= %.15g  delta_E= %4.3g  |g|= %4.3g  |ddm|= %4.3g',
                     cycle+1, e_tot, e_tot-last_hf_e, norm_gorb, norm_ddm)
 
@@ -228,7 +229,8 @@ Keyword argument "init_dm" is replaced by "dm0"''')
                                       stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
+        
+        norm_ddm = numpy.linalg.norm(stop_grad(numpy.asarray(dm))-stop_grad(numpy.asarray(dm_last)))
 
         conv_tol = conv_tol * 10
         conv_tol_grad = conv_tol_grad * 3
@@ -1496,7 +1498,6 @@ class SCF(lib.StreamObject):
         log.info('max_memory %d MB (current use %d MB)',
                  self.max_memory, lib.current_memory()[0])
         return self
-
 
     def _eigh(self, h, s):
         return eig(h, s)
