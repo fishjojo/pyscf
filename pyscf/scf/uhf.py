@@ -140,7 +140,7 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
     dm_a = jnp.dot(mo_a*mo_occ[0], mo_a.conj().T)
     dm_b = jnp.dot(mo_b*mo_occ[1], mo_b.conj().T)
 
-    return (dm_a, dm_b)
+    return jnp.array((dm_a, dm_b))
 
 def get_veff(mol, dm, dm_last=0, vhf_last=0, hermi=1, vhfopt=None):
     r'''Unrestricted Hartree-Fock potential matrix of alpha and beta spins,
@@ -250,8 +250,8 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
 
 def get_occ(mf, mo_energy=None, mo_coeff=None):
     if mo_energy is None: mo_energy = mf.mo_energy
-    e_idx_a = numpy.argsort(mo_energy[0])
-    e_idx_b = numpy.argsort(mo_energy[1])
+    e_idx_a = jnp.argsort(mo_energy[0])
+    e_idx_b = jnp.argsort(mo_energy[1])
     e_sort_a = mo_energy[0][e_idx_a]
     e_sort_b = mo_energy[1][e_idx_b]
     nmo = mo_energy[0].size
@@ -770,7 +770,7 @@ class UHF(hf.SCF):
     def eig(self, fock, s):
         e_a, c_a = self._eigh(fock[0], s)
         e_b, c_b = self._eigh(fock[1], s)
-        return (e_a,e_b), (c_a,c_b)
+        return jnp.array((e_a,e_b)), jnp.array((c_a,c_b))
 
     get_fock = get_fock
 
