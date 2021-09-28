@@ -44,7 +44,6 @@ PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
 MO_BASE = getattr(__config__, 'MO_BASE', 1)
 TIGHT_GRAD_CONV_TOL = getattr(__config__, 'scf_hf_kernel_tight_grad_conv_tol', True)
 MUTE_CHKFILE = getattr(__config__, 'scf_hf_SCF_mute_chkfile', False)
-
 PYSCFAD = getattr(__config__, 'pyscfad', False)
 if PYSCFAD:
     from pyscfad.lib import numpy as jnp
@@ -229,8 +228,8 @@ Keyword argument "init_dm" is replaced by "dm0"''')
                                       stop_grad(mo_occ), stop_grad(fock)))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        
         norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
+
         conv_tol = conv_tol * 10
         conv_tol_grad = conv_tol_grad * 3
         if callable(mf.check_convergence):
@@ -661,7 +660,15 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
         mo_occ : 1D ndarray
             Occupancy
     '''
-    return jnp.dot(mo_coeff*mo_occ, mo_coeff.conj().T)
+    if PYSCFAD:
+        return jnp.dot(mo_coeff*mo_occ, mo_coeff.conj().T)
+
+    mocc = mo_coeff[:,mo_occ>0]
+# DO NOT make tag_array for dm1 here because this DM array may be modified and
+# passed to functions like get_jk, get_vxc.  These functions may take the tags
+# (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
+# array and modifications to DM array may be ignored.
+    return jnp.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
 
 ################################################
 # for general DM
@@ -931,7 +938,7 @@ def get_occ(mf, mo_energy=None, mo_coeff=None):
     array([2, 2, 0, 2, 2, 2])
     '''
     if mo_energy is None: mo_energy = mf.mo_energy
-    e_idx  = numpy.argsort(mo_energy)
+    e_idx = numpy.argsort(mo_energy)
     e_sort = mo_energy[e_idx]
     nmo = mo_energy.size
     mo_occ = numpy.zeros(nmo)
