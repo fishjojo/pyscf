@@ -29,6 +29,11 @@ PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
 BREAKSYM = getattr(__config__, 'scf_uhf_init_guess_breaksym', True)
 MO_BASE = getattr(__config__, 'MO_BASE', 1)
 
+PYSCFAD = getattr(__config__, 'pyscfad', False)
+if PYSCFAD:
+    from pyscfad.lib import numpy as jnp
+else:
+    jnp = numpy
 
 def init_guess_by_minao(mol, breaksym=BREAKSYM):
     '''Generate initial guess density matrix based on ANO basis, then project
@@ -131,13 +136,14 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
     '''
     mo_a = mo_coeff[0]
     mo_b = mo_coeff[1]
-    dm_a = numpy.dot(mo_a*mo_occ[0], mo_a.conj().T)
-    dm_b = numpy.dot(mo_b*mo_occ[1], mo_b.conj().T)
+
+    dm_a = jnp.dot(mo_a*mo_occ[0], mo_a.conj().T)
+    dm_b = jnp.dot(mo_b*mo_occ[1], mo_b.conj().T)
 # DO NOT make tag_array for DM here because the DM arrays may be modified and
 # passed to functions like get_jk, get_vxc.  These functions may take the tags
 # (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
 # arrays and modifications to DM arrays may be ignored.
-    return numpy.array((dm_a, dm_b))
+    return jnp.array((dm_a, dm_b))
 
 def get_veff(mol, dm, dm_last=0, vhf_last=0, hermi=1, vhfopt=None):
     r'''Unrestricted Hartree-Fock potential matrix of alpha and beta spins,
@@ -247,8 +253,8 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
 
 def get_occ(mf, mo_energy=None, mo_coeff=None):
     if mo_energy is None: mo_energy = mf.mo_energy
-    e_idx_a = numpy.argsort(mo_energy[0])
-    e_idx_b = numpy.argsort(mo_energy[1])
+    e_idx_a = jnp.argsort(mo_energy[0])
+    e_idx_b = jnp.argsort(mo_energy[1])
     e_sort_a = mo_energy[0][e_idx_a]
     e_sort_b = mo_energy[1][e_idx_b]
     nmo = mo_energy[0].size
@@ -314,10 +320,10 @@ def energy_elec(mf, dm=None, h1e=None, vhf=None):
         dm = numpy.array((dm*.5, dm*.5))
     if vhf is None:
         vhf = mf.get_veff(mf.mol, dm)
-    e1 = numpy.einsum('ij,ji->', h1e, dm[0])
-    e1+= numpy.einsum('ij,ji->', h1e, dm[1])
-    e_coul =(numpy.einsum('ij,ji->', vhf[0], dm[0]) +
-             numpy.einsum('ij,ji->', vhf[1], dm[1])) * .5
+    e1 = jnp.einsum('ij,ji->', h1e, dm[0])
+    e1+= jnp.einsum('ij,ji->', h1e, dm[1])
+    e_coul =(jnp.einsum('ij,ji->', vhf[0], dm[0]) +
+             jnp.einsum('ij,ji->', vhf[1], dm[1])) * .5
     e_elec = (e1 + e_coul).real
     mf.scf_summary['e1'] = e1.real
     mf.scf_summary['e2'] = e_coul.real
@@ -632,7 +638,7 @@ def canonicalize(mf, mo_coeff, mo_occ, fock=None):
 
 def det_ovlp(mo1, mo2, occ1, occ2, ovlp):
     r''' Calculate the overlap between two different determinants. It is the product
-    of single values of molecular orbital overlap matrix.
+    of singular values of molecular orbital overlap matrix.
 
     .. math::
 
@@ -767,7 +773,7 @@ class UHF(hf.SCF):
     def eig(self, fock, s):
         e_a, c_a = self._eigh(fock[0], s)
         e_b, c_b = self._eigh(fock[1], s)
-        return numpy.array((e_a,e_b)), numpy.array((c_a,c_b))
+        return jnp.array((e_a,e_b)), jnp.array((c_a,c_b))
 
     get_fock = get_fock
 

@@ -1497,7 +1497,6 @@ class SCF(lib.StreamObject):
                  self.max_memory, lib.current_memory()[0])
         return self
 
-
     def _eigh(self, h, s):
         return eig(h, s)
 
