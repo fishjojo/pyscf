@@ -20,6 +20,7 @@ import scipy.linalg
 from pyscf import lib
 from pyscf import gto
 from pyscf.lib import logger
+from pyscf.lib import stop_grad
 from pyscf.scf import hf
 from pyscf.scf import chkfile
 from pyscf import __config__
@@ -256,7 +257,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if abs(shifta)+abs(shiftb) > 1e-4:
         f = (hf.level_shift(s1e, dm[0], f[0], shifta),
              hf.level_shift(s1e, dm[1], f[1], shiftb))
-    return numpy.array(f)
+    return jnp.array(f)
 
 def get_occ(mf, mo_energy=None, mo_coeff=None):
     if mo_energy is None: mo_energy = mf.mo_energy
@@ -435,10 +436,10 @@ def spin_square(mo, s=1):
     >>> print('S^2 = %.7f, 2S+1 = %.7f' % spin_square(mo, mol.intor('int1e_ovlp_sph')))
     S^2 = 0.7570150, 2S+1 = 2.0070027
     '''
-    mo_a, mo_b = mo
+    mo_a, mo_b = stop_grad(mo)
     nocc_a = mo_a.shape[1]
     nocc_b = mo_b.shape[1]
-    s = reduce(numpy.dot, (mo_a.conj().T, s, mo_b))
+    s = reduce(numpy.dot, (mo_a.conj().T, stop_grad(s), mo_b))
     ssxy = (nocc_a+nocc_b) * .5 - numpy.einsum('ij,ij->', s.conj(), s)
     ssz = (nocc_b-nocc_a)**2 * .25
     ss = (ssxy + ssz).real
