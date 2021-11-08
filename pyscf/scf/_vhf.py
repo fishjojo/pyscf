@@ -342,7 +342,7 @@ def direct_mapdm(intor, aosym, jkdescript,
     natm = ctypes.c_int(c_atm.shape[0])
     nbas = ctypes.c_int(c_bas.shape[0])
 
-    if isinstance(dms, numpy.ndarray) and dms.ndim == 2:
+    if getattr(dms, 'ndim', None) == 2:
         dms = dms[numpy.newaxis,:,:]
     n_dm = len(dms)
     dms = [numpy.asarray(dm, order='C') for dm in dms]
