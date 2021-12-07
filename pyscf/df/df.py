@@ -250,7 +250,7 @@ class DF(lib.StreamObject):
         nao_pair = nao * (nao+1) // 2
         ao_eri = numpy.zeros((nao_pair,nao_pair))
         for eri1 in self.loop():
-            lib.dot(eri1.T, eri1, 1, ao_eri, 1)
+            lib.dot(eri1.T, eri1, alpha=1, c=ao_eri, beta=1)
         return ao2mo.restore(8, ao_eri, nao)
     get_ao_eri = get_eri
 
@@ -270,7 +270,7 @@ class DF(lib.StreamObject):
                 Lkl = Lij
             else:
                 Lkl = _ao2mo.nr_e2(eri1, mokl, klslice, aosym='s2', mosym=klmosym, out=Lkl)
-            lib.dot(Lij.T, Lkl, 1, mo_eri, 1)
+            lib.dot(Lij.T, Lkl, alpha=1, c=mo_eri, beta=1)
         return mo_eri
     get_mo_eri = ao2mo
 

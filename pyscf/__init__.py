@@ -108,6 +108,7 @@ elif '1.16.2' <= LooseVersion(numpy.__version__) < '1.18':
         return ctypes.cast(ctypes.byref(c_arr), ctypes.c_void_p)
     # patch _get_void_ptr as a workaround to numpy issue #13808
     _internal._get_void_ptr = _get_void_ptr
+del numpy
 
 from pyscf import __config__
 from pyscf import lib

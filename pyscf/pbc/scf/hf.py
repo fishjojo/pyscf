@@ -60,7 +60,7 @@ def get_ovlp(cell, kpt=np.zeros(3)):
                     'cell.precision  or  cell.rcut  can be adjusted to '
                     'improve accuracy.')
 
-    cond = np.max(lib.cond(s1))
+    cond = np.max(np.linalg.cond(s1))
     if cond * cell.precision > 1e2:
         prec = 1e2 / cond
         rmin = max([cell.bas_rcut(ib, prec) for ib in range(cell.nbas)])

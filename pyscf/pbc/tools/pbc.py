@@ -52,9 +52,9 @@ def _ifftn_blas(g, mesh):
     buf = np.empty(mesh, dtype=np.complex128)
     for i, gi in enumerate(g):
         buf[:] = gi.reshape(mesh)
-        f = lib.dot(buf.reshape(mesh[0],-1).T, expRGx, 1./mesh[0], c=out[i].reshape(-1,mesh[0]))
-        f = lib.dot(f.reshape(mesh[1],-1).T, expRGy, 1./mesh[1], c=buf.reshape(-1,mesh[1]))
-        f = lib.dot(f.reshape(mesh[2],-1).T, expRGz, 1./mesh[2], c=out[i].reshape(-1,mesh[2]))
+        f = lib.dot(buf.reshape(mesh[0],-1).T, expRGx, alpha=1./mesh[0], c=out[i].reshape(-1,mesh[0]))
+        f = lib.dot(f.reshape(mesh[1],-1).T, expRGy, alpha=1./mesh[1], c=buf.reshape(-1,mesh[1]))
+        f = lib.dot(f.reshape(mesh[2],-1).T, expRGz, alpha=1./mesh[2], c=out[i].reshape(-1,mesh[2]))
     return out.reshape(-1, *mesh)
 
 if FFT_ENGINE == 'FFTW':

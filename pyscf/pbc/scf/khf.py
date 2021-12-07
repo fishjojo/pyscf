@@ -28,9 +28,10 @@ See Also:
 import sys
 
 from functools import reduce
-import numpy as np
+import numpy
 import scipy.linalg
 import h5py
+from pyscf import numpy as np
 from pyscf.pbc.scf import hf as pbchf
 from pyscf import lib
 from pyscf.scf import hf as mol_hf
@@ -47,11 +48,6 @@ from pyscf import __config__
 WITH_META_LOWDIN = getattr(__config__, 'pbc_scf_analyze_with_meta_lowdin', True)
 PRE_ORTH_METHOD = getattr(__config__, 'pbc_scf_analyze_pre_orth_method', 'ANO')
 CHECK_COULOMB_IMAG = getattr(__config__, 'pbc_scf_check_coulomb_imag', True)
-PYSCFAD = getattr(__config__, 'pyscfad', False)
-if PYSCFAD:
-    from pyscfad.lib import numpy as jnp
-else:
-    jnp = np
 
 def get_ovlp(mf, cell=None, kpts=None):
     '''Get the overlap AO matrices at sampled k-points.
@@ -75,7 +71,7 @@ def get_ovlp(mf, cell=None, kpts=None):
                     'cell.precision  or  cell.rcut  can be adjusted to '
                     'improve accuracy.')
 
-    cond = np.max(lib.cond(s1))
+    cond = numpy.max(numpy.linalg.cond(s1))
     if cond * cell.precision > 1e2:
         prec = 1e2 / cond
         rmin = max([cell.bas_rcut(ib, prec) for ib in range(cell.nbas)])
@@ -86,7 +82,7 @@ def get_ovlp(mf, cell=None, kpts=None):
                         'improve accuracy.  Recommended values are\n      '
                         'cell.precision = %.2g  or smaller.\n      '
                         'cell.rcut = %.4g  or larger.', prec, rmin)
-    return jnp.asarray(s)
+    return np.asarray(s)
 
 
 def get_hcore(mf, cell=None, kpts=None):
@@ -192,7 +188,7 @@ def get_fermi(mf, mo_energy_kpts=None, mo_occ_kpts=None):
     nocc = sum(mo_occ.sum() for mo_occ in mo_occ_kpts) / 2
     # nocc may not be perfect integer when smearing is enabled
     nocc = int(nocc.round(3))
-    fermi = np.sort(np.hstack(mo_energy_kpts))[nocc-1]
+    fermi = numpy.sort(numpy.hstack(mo_energy_kpts))[nocc-1]
 
     for k, mo_e in enumerate(mo_energy_kpts):
         mo_occ = mo_occ_kpts[k]
@@ -211,11 +207,11 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
     nkpts = len(mo_energy_kpts)
     nocc = mf.cell.tot_electrons(nkpts) // 2
 
-    mo_energy = np.sort(np.hstack(mo_energy_kpts))
+    mo_energy = numpy.sort(numpy.hstack(mo_energy_kpts))
     fermi = mo_energy[nocc-1]
     mo_occ_kpts = []
     for mo_e in mo_energy_kpts:
-        mo_occ_kpts.append((mo_e <= fermi).astype(np.double) * 2)
+        mo_occ_kpts.append((mo_e <= fermi).astype(float) * 2)
 
     if nocc < mo_energy.size:
         logger.info(mf, 'HOMO = %.12g  LUMO = %.12g',
@@ -227,14 +223,14 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
         logger.info(mf, 'HOMO = %.12g', mo_energy[nocc-1])
 
     if mf.verbose >= logger.DEBUG:
-        np.set_printoptions(threshold=len(mo_energy))
+        numpy.set_printoptions(threshold=len(mo_energy))
         logger.debug(mf, '     k-point                  mo_energy')
         for k,kpt in enumerate(mf.cell.get_scaled_kpts(mf.kpts)):
             logger.debug(mf, '  %2d (%6.3f %6.3f %6.3f)   %s %s',
                          k, kpt[0], kpt[1], kpt[2],
                          mo_energy_kpts[k][mo_occ_kpts[k]> 0],
                          mo_energy_kpts[k][mo_occ_kpts[k]==0])
-        np.set_printoptions(threshold=1000)
+        numpy.set_printoptions(threshold=1000)
 
     return mo_occ_kpts
 
@@ -248,7 +244,7 @@ def get_grad(mo_coeff_kpts, mo_occ_kpts, fock):
     nkpts = len(mo_occ_kpts)
     grad_kpts = [mol_hf.get_grad(mo_coeff_kpts[k], mo_occ_kpts[k], fock[k])
                  for k in range(nkpts)]
-    return np.hstack(grad_kpts)
+    return numpy.hstack(grad_kpts)
 
 
 def make_rdm1(mo_coeff_kpts, mo_occ_kpts, **kwargs):
@@ -260,7 +256,7 @@ def make_rdm1(mo_coeff_kpts, mo_occ_kpts, **kwargs):
     nkpts = len(mo_occ_kpts)
     dm_kpts = [mol_hf.make_rdm1(mo_coeff_kpts[k], mo_occ_kpts[k])
                for k in range(nkpts)]
-    return jnp.asarray(dm_kpts)
+    return np.asarray(dm_kpts)
 
 
 def energy_elec(mf, dm_kpts=None, h1e_kpts=None, vhf_kpts=None):
@@ -271,8 +267,8 @@ def energy_elec(mf, dm_kpts=None, h1e_kpts=None, vhf_kpts=None):
     if vhf_kpts is None: vhf_kpts = mf.get_veff(mf.cell, dm_kpts)
 
     nkpts = len(dm_kpts)
-    e1 = 1./nkpts * jnp.einsum('kij,kji', dm_kpts, h1e_kpts)
-    e_coul = 1./nkpts * jnp.einsum('kij,kji', dm_kpts, vhf_kpts) * 0.5
+    e1 = 1./nkpts * np.einsum('kij,kji', dm_kpts, h1e_kpts)
+    e_coul = 1./nkpts * np.einsum('kij,kji', dm_kpts, vhf_kpts) * 0.5
     mf.scf_summary['e1'] = e1.real
     mf.scf_summary['e2'] = e_coul.real
     logger.debug(mf, 'E1 = %s  E_coul = %s', e1, e_coul)
@@ -321,11 +317,11 @@ def mulliken_meta(cell, dm_ao_kpts, verbose=logger.DEBUG,
     dm_ao_gamma = dm_ao_kpts[0,:,:].real
     s_gamma = s[0,:,:].real
     orth_coeff = orth.orth_ao(cell, 'meta_lowdin', pre_orth_method, s=s_gamma)
-    c_inv = np.dot(orth_coeff.T, s_gamma)
-    dm = reduce(np.dot, (c_inv, dm_ao_gamma, c_inv.T.conj()))
+    c_inv = numpy.dot(orth_coeff.T, s_gamma)
+    dm = reduce(numpy.dot, (c_inv, dm_ao_gamma, c_inv.T.conj()))
 
     log.note(' ** Mulliken pop on meta-lowdin orthogonal AOs **')
-    return mol_hf.mulliken_pop(cell, dm, np.eye(orth_coeff.shape[0]), log)
+    return mol_hf.mulliken_pop(cell, dm, numpy.eye(orth_coeff.shape[0]), log)
 
 
 def canonicalize(mf, mo_coeff_kpts, mo_occ_kpts, fock=None):
@@ -335,16 +331,16 @@ def canonicalize(mf, mo_coeff_kpts, mo_occ_kpts, fock=None):
     mo_coeff = []
     mo_energy = []
     for k, mo in enumerate(mo_coeff_kpts):
-        mo1 = np.empty_like(mo)
-        mo_e = np.empty_like(mo_occ_kpts[k])
+        mo1 = numpy.empty_like(mo)
+        mo_e = numpy.empty_like(mo_occ_kpts[k])
         occidx = mo_occ_kpts[k] == 2
         viridx = ~occidx
         for idx in (occidx, viridx):
-            if np.count_nonzero(idx) > 0:
+            if numpy.count_nonzero(idx) > 0:
                 orb = mo[:,idx]
-                f1 = reduce(np.dot, (orb.T.conj(), fock[k], orb))
+                f1 = reduce(numpy.dot, (orb.T.conj(), fock[k], orb))
                 e, c = scipy.linalg.eigh(f1)
-                mo1[:,idx] = np.dot(orb, c)
+                mo1[:,idx] = numpy.dot(orb, c)
                 mo_e[idx] = e
         mo_coeff.append(mo1)
         mo_energy.append(mo_e)
@@ -364,7 +360,7 @@ def init_guess_by_chkfile(cell, chkfile_name, project=None, kpts=None):
 
 
 def dip_moment(cell, dm_kpts, unit='Debye', verbose=logger.NOTE,
-               grids=None, rho=None, kpts=np.zeros((1,3))):
+               grids=None, rho=None, kpts=numpy.zeros((1,3))):
     ''' Dipole moment in the unit cell (is it well defined)?
 
     Args:
@@ -466,7 +462,7 @@ class KSCF(pbchf.SCF):
     conv_tol_grad = getattr(__config__, 'pbc_scf_KSCF_conv_tol_grad', None)
     direct_scf = getattr(__config__, 'pbc_scf_SCF_direct_scf', True)
 
-    def __init__(self, cell, kpts=np.zeros((1,3)),
+    def __init__(self, cell, kpts=numpy.zeros((1,3)),
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
         if not cell._built:
             sys.stderr.write('Warning: cell.build() is not called in input\n')
@@ -493,7 +489,7 @@ class KSCF(pbchf.SCF):
         return self.with_df.kpts
     @kpts.setter
     def kpts(self, x):
-        self.with_df.kpts = np.reshape(x, (-1,3))
+        self.with_df.kpts = numpy.reshape(x, (-1,3))
         if self.rsjk:
             self.rsjk.kpts = self.with_df.kpts
 
@@ -559,7 +555,7 @@ class KSCF(pbchf.SCF):
             self.kpts = self.__dict__.pop('kpts')
 
         if self.rsjk:
-            if not np.all(self.rsjk.kpts == self.kpts):
+            if not numpy.all(self.rsjk.kpts == self.kpts):
                 self.rsjk = self.rsjk.__class__(cell, self.kpts)
             self.rsjk.build(direct_scf_tol=self.direct_scf_tol)
 
@@ -592,7 +588,7 @@ class KSCF(pbchf.SCF):
         if dm_kpts is None:
             dm_kpts = lib.asarray([dm]*len(self.kpts))
 
-        ne = np.einsum('kij,kji->', dm_kpts, self.get_ovlp(cell)).real
+        ne = numpy.einsum('kij,kji->', dm_kpts, self.get_ovlp(cell)).real
         # FIXME: consider the fractional num_electron or not? This maybe
         # relate to the charged system.
         nkpts = len(self.kpts)
@@ -714,7 +710,7 @@ class KSCF(pbchf.SCF):
         if dm_kpts is None: dm_kpts = self.make_rdm1()
         if kpts is None: kpts = self.kpts
 
-        kpts_band = np.asarray(kpts_band)
+        kpts_band = numpy.asarray(kpts_band)
         single_kpt_band = (kpts_band.ndim == 1)
         kpts_band = kpts_band.reshape(-1,3)
 
@@ -869,7 +865,7 @@ if __name__ == '__main__':
     He 1 0 1
     '''
     cell.basis = '321g'
-    cell.a = np.eye(3) * 3
+    cell.a = numpy.eye(3) * 3
     cell.mesh = [11] * 3
     cell.verbose = 5
     cell.build()

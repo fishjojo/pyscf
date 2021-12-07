@@ -26,6 +26,7 @@ RCCSD for real integrals
 import ctypes
 from functools import reduce
 import numpy
+from pyscf import numpy as np
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
@@ -38,11 +39,6 @@ from pyscf import __config__
 
 BLKMIN = getattr(__config__, 'cc_ccsd_blkmin', 4)
 MEMORYMIN = getattr(__config__, 'cc_ccsd_memorymin', 2000)
-PYSCFAD = getattr(__config__, 'pyscfad', False)
-if PYSCFAD:
-    from pyscfad.lib import numpy as jnp
-else:
-    jnp = numpy
 
 # t1: ia
 # t2: ijab
@@ -74,7 +70,7 @@ def kernel(mycc, eris=None, t1=None, t2=None, max_cycle=50, tol=1e-8,
         t1new, t2new = mycc.update_amps(t1, t2, eris)
         tmpvec = mycc.amplitudes_to_vector(t1new, t2new)
         tmpvec -= mycc.amplitudes_to_vector(t1, t2)
-        normt = jnp.linalg.norm(tmpvec)
+        normt = np.linalg.norm(tmpvec)
         tmpvec = None
         if mycc.iterative_damping < 1.0:
             alpha = mycc.iterative_damping
@@ -707,14 +703,14 @@ def energy(mycc, t1=None, t2=None, eris=None):
 
     nocc, nvir = t1.shape
     fock = eris.fock
-    e = jnp.einsum('ia,ia', fock[:nocc,nocc:], t1) * 2
+    e = np.einsum('ia,ia', fock[:nocc,nocc:], t1) * 2
     max_memory = mycc.max_memory - lib.current_memory()[0]
     blksize = int(min(nvir, max(BLKMIN, max_memory*.3e6/8/(nocc**2*nvir+1))))
     for p0, p1 in lib.prange(0, nvir, blksize):
         eris_ovvo = eris.ovvo[:,p0:p1]
-        tau = t2[:,:,p0:p1] + jnp.einsum('ia,jb->ijab', t1[:,p0:p1], t1)
-        e += 2 * jnp.einsum('ijab,iabj', tau, eris_ovvo)
-        e -=     jnp.einsum('jiab,iabj', tau, eris_ovvo)
+        tau = t2[:,:,p0:p1] + np.einsum('ia,jb->ijab', t1[:,p0:p1], t1)
+        e += 2 * np.einsum('ijab,iabj', tau, eris_ovvo)
+        e -=     np.einsum('jiab,iabj', tau, eris_ovvo)
     if abs(e.imag) > 1e-4:
         logger.warn(mycc, 'Non-zero imaginary part found in CCSD energy %s', e)
     return e.real

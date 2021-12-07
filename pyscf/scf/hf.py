@@ -25,10 +25,12 @@ import tempfile
 
 from functools import reduce
 import numpy
-import scipy.linalg
+#import scipy.linalg
 import h5py
 from pyscf import gto
 from pyscf import lib
+from pyscf import numpy as np
+from pyscf import scipy as scipy
 from pyscf.lib import logger
 from pyscf.lib import linalg_helper_ad as linalg_helper
 from pyscf.scf import diis
@@ -36,7 +38,6 @@ from pyscf.scf import _vhf
 from pyscf.scf import chkfile
 from pyscf.data import nist
 from pyscf import __config__
-from pyscf.lib.ops import index,index_update, index_mul
 from pyscf.lib import stop_grad
 
 WITH_META_LOWDIN = getattr(__config__, 'scf_analyze_with_meta_lowdin', True)
@@ -44,11 +45,6 @@ PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
 MO_BASE = getattr(__config__, 'MO_BASE', 1)
 TIGHT_GRAD_CONV_TOL = getattr(__config__, 'scf_hf_kernel_tight_grad_conv_tol', True)
 MUTE_CHKFILE = getattr(__config__, 'scf_hf_SCF_mute_chkfile', False)
-PYSCFAD = getattr(__config__, 'pyscfad', False)
-if PYSCFAD:
-    from pyscfad.lib import numpy as jnp
-else:
-    jnp = numpy
 
 # For code compatibility in python-2 and python-3
 if sys.version_info >= (3,):
@@ -140,7 +136,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
     mo_energy = mo_coeff = mo_occ = None
 
     s1e = mf.get_ovlp(mol)
-    cond = lib.cond(s1e)
+    cond = np.linalg.cond(s1e)
     logger.debug(mf, 'cond(S) = %s', cond)
     if cond.max()*1e-17 > conv_tol:
         logger.warn(mf, 'Singularity detected in overlap matrix (condition number = %4.3g). '
@@ -287,8 +283,8 @@ def energy_elec(mf, dm=None, h1e=None, vhf=None):
     if dm is None: dm = mf.make_rdm1()
     if h1e is None: h1e = mf.get_hcore()
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
-    e1 = jnp.einsum('ij,ji->', h1e, dm)
-    e_coul = jnp.einsum('ij,ji->', vhf, dm) * .5
+    e1 = np.einsum('ij,ji->', h1e, dm)
+    e_coul = np.einsum('ij,ji->', vhf, dm) * .5
     mf.scf_summary['e1'] = stop_grad(e1).real
     mf.scf_summary['e2'] = stop_grad(e_coul).real
     logger.debug(mf, 'E1 = %s  E_coul = %s', stop_grad(e1), stop_grad(e_coul))
@@ -660,15 +656,12 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
         mo_occ : 1D ndarray
             Occupancy
     '''
-    if PYSCFAD:
-        return jnp.dot(mo_coeff*mo_occ, mo_coeff.conj().T)
-
     mocc = mo_coeff[:,mo_occ>0]
 # DO NOT make tag_array for dm1 here because this DM array may be modified and
 # passed to functions like get_jk, get_vxc.  These functions may take the tags
 # (mo_coeff, mo_occ) to compute the potential if tags were found in the DM
 # array and modifications to DM array may be ignored.
-    return jnp.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
+    return np.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
 
 ################################################
 # for general DM
@@ -1061,7 +1054,7 @@ def mulliken_pop(mol, dm, s=None, verbose=logger.DEBUG):
     '''
     if s is None: s = get_ovlp(mol)
     log = logger.new_logger(mol, verbose)
-    if isinstance(dm, numpy.ndarray) and dm.ndim == 2:
+    if getattr(dm, "ndim", None) == 2:
         pop = numpy.einsum('ij,ji->i', dm, s).real
     else: # ROHF
         pop = numpy.einsum('ij,ji->i', dm[0]+dm[1], s).real
@@ -1119,7 +1112,7 @@ def mulliken_meta(mol, dm, verbose=logger.DEBUG,
 
     orth_coeff = orth.orth_ao(mol, 'meta_lowdin', pre_orth_method, s=s)
     c_inv = numpy.dot(orth_coeff.conj().T, s)
-    if isinstance(dm, numpy.ndarray) and dm.ndim == 2:
+    if getattr(dm, "ndim", None) == 2:
         dm = reduce(numpy.dot, (c_inv, dm, c_inv.T.conj()))
     else:  # ROHF
         dm = reduce(numpy.dot, (c_inv, dm[0]+dm[1], c_inv.T.conj()))
@@ -1134,11 +1127,13 @@ def eig(h, s):
 
     .. math:: HC = SCE
     '''
-    e, c = linalg_helper.eigh(h, s)
-    if not PYSCFAD:
+    e, c = scipy.linalg.eigh(h, s)
+
+    numpy_backend = getattr(__config__, "pyscf_numpy_backend", "pyscf")
+    if numpy_backend.upper() not in ("JAX", "PYSCFAD"):
+        # inplace update is slow for jax arrays
         idx = numpy.argmax(abs(c.real), axis=0)
         c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
-    #c = index_mul(c, index[:,c[idx,jnp.arange(len(e))].real<0], -1.)
     return e, c
 
 def canonicalize(mf, mo_coeff, mo_occ, fock=None):
@@ -1195,11 +1190,11 @@ def dip_moment(mol, dm, unit='Debye', verbose=logger.NOTE, **kwargs):
 
     with mol.with_common_orig((0,0,0)):
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-    el_dip = jnp.einsum('xij,ji->x', ao_dip, dm).real
+    el_dip = np.einsum('xij,ji->x', ao_dip, dm).real
 
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
-    nucl_dip = jnp.einsum('i,ix->x', charges, coords)
+    nucl_dip = np.einsum('i,ix->x', charges, coords)
     mol_dip = nucl_dip - el_dip
 
     if unit.upper() == 'DEBYE':
@@ -1732,7 +1727,7 @@ class SCF(lib.StreamObject):
         if mol is None: mol = self.mol
         if dm is None: dm = self.make_rdm1()
         if self.direct_scf:
-            ddm = jnp.asarray(dm) - dm_last
+            ddm = np.asarray(dm) - dm_last
             vj, vk = self.get_jk(mol, ddm, hermi=hermi)
             return vhf_last + vj - vk * .5
         else:

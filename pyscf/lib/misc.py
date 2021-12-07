@@ -39,8 +39,6 @@ except ImportError:
 from pyscf.lib import param
 from pyscf import __config__
 
-PYSCFAD = getattr(__config__, "pyscfad", False)
-
 if h5py.version.version[:4] == '2.2.':
     sys.stderr.write('h5py-%s is found in your environment. '
                      'h5py-%s has bug in threading mode.\n'
@@ -1064,7 +1062,13 @@ def git_info(repo_path):
     return orig_head, head, branch
 
 def stop_grad(x):
-    if PYSCFAD:
+    # only works for jax arrays
+    numpy_backend = getattr(__config__, "pyscf_numpy_backend", "pyscf")
+    ad = getattr(__config__, "pyscfad", False)
+    if numpy_backend.upper() in ("JAX", "PYSCFAD"):
+        import jax
+        return jax.lax.stop_gradient(x)
+    elif ad:
         import pyscfad.lib
         return pyscfad.lib.stop_grad(x)
     else:
@@ -1106,6 +1110,29 @@ def isintsequence(obj):
         for i in obj:
             are_ints = are_ints and isinteger(i)
         return are_ints
+
+
+def get_module_functions(module):
+    import types
+    import numpy as np
+    funcs = {}
+    for key in dir(module):
+        if key in ():
+            continue
+        attr = getattr(module, key)
+        if isinstance(attr, (types.FunctionType,
+                             types.BuiltinFunctionType,
+                             types.BuiltinMethodType,
+                             np.ufunc, np.lib.index_tricks.IndexExpression)):
+            funcs[key] = attr
+    return funcs
+
+
+def add_functions_from_module(module, symbol_table):
+    funcs = get_module_functions(module)
+    for name, func in funcs.items():
+        if name not in symbol_table:
+            symbol_table[name] = func
 
 
 if __name__ == '__main__':

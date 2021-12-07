@@ -22,7 +22,8 @@ DIIS
 
 import sys
 import numpy
-from pyscf.lib.linalg_helper_ad import eigh
+from pyscf import numpy as np
+from pyscf.scipy.linalg import eigh
 from pyscf.lib import logger
 from pyscf.lib import misc
 from pyscf.lib import numpy_helper
@@ -32,11 +33,6 @@ from pyscf import __config__
 
 INCORE_SIZE = getattr(__config__, 'lib_diis_incore_size', 10000000)  # 80 MB
 BLOCK_SIZE  = getattr(__config__, 'lib_diis_block_size', 20000000)  # ~ 160/320 MB
-PYSCFAD = getattr(__config__, 'pyscfad', False)
-if PYSCFAD:
-    from pyscfad.lib import numpy as jnp
-else:
-    jnp = numpy
 
 # PCCP, 4, 11 (2002); DOI:10.1039/B108658H
 # GEDIIS, JCTC, 2, 835 (2006); DOI:10.1021/ct050275a
@@ -181,7 +177,7 @@ class DIIS(object):
             xkey = 'x%d'%self._head
             self._store(xkey, x)
             if x.size < INCORE_SIZE or self.incore:
-                self._store(ekey, x - jnp.asarray(self._xprev))
+                self._store(ekey, x - np.asarray(self._xprev))
             else:  # not call _store to reduce memory footprint
                 if ekey not in self._diisfile:
                     self._diisfile.create_dataset(ekey, (x.size,), x.dtype)
@@ -224,9 +220,9 @@ class DIIS(object):
         if nd < self.min_space:
             return x
 
-        dt = jnp.array(self.get_err_vec(self._head-1), copy=False)
+        dt = np.array(self.get_err_vec(self._head-1), copy=False)
         if self._H is None:
-            self._H = jnp.zeros((self.space+1,self.space+1), dt.dtype)
+            self._H = np.zeros((self.space+1,self.space+1), dt.dtype)
             #self._H[0,1:] = self._H[1:,0] = 1
             self._H = index_update(self._H, index[1:,0], 1)
             self._H = index_update(self._H, index[0,1:], 1)
@@ -234,7 +230,7 @@ class DIIS(object):
             tmp = 0
             dti = self.get_err_vec(i)
             for p0, p1 in misc.prange(0, dt.size, BLOCK_SIZE):
-                tmp += jnp.dot(dt[p0:p1].conj(), dti[p0:p1])
+                tmp += np.dot(dt[p0:p1].conj(), dti[p0:p1])
             #self._H[self._head,i+1] = tmp
             #self._H[i+1,self._head] = tmp.conjugate()
             self._H = index_update(self._H, index[self._head,i+1], tmp)
@@ -263,14 +259,14 @@ class DIIS(object):
         g[0] = 1
 
         w, v = eigh(h)
-        if jnp.any(abs(w)<1e-14):
+        if np.any(abs(w)<1e-14):
             logger.debug(self, 'Linear dependence found in DIIS error vectors.')
             idx = abs(w)>1e-14
-            c = jnp.dot(v[:,idx]*(1./w[idx]), jnp.dot(v[:,idx].T.conj(), g))
+            c = np.dot(v[:,idx]*(1./w[idx]), np.dot(v[:,idx].T.conj(), g))
         else:
             try:
-                c = jnp.linalg.solve(h, g)
-            except jnp.linalg.linalg.LinAlgError as e:
+                c = np.linalg.solve(h, g)
+            except np.linalg.linalg.LinAlgError as e:
                 logger.warn(self, ' diis singular, eigh(h) %s', w)
                 raise e
         logger.debug1(self, 'diis-c %s', stop_grad(c))

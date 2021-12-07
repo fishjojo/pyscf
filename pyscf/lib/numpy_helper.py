@@ -28,12 +28,6 @@ from pyscf.lib import misc
 from numpy import asarray  # For backward compatibility
 from pyscf import __config__
 
-PYSCFAD = getattr(__config__, "pyscfad", False)
-if PYSCFAD:
-    from pyscfad.lib import numpy as jnp
-else:
-    jnp = numpy
-
 EINSUM_MAX_SIZE = getattr(misc.__config__, 'lib_einsum_max_size', 2000)
 
 try:
@@ -743,7 +737,15 @@ def zdot(a, b, alpha=1, c=None, beta=0):
 
     return _zgemm(trans_a, trans_b, m, n, k, a, b, c, alpha, beta)
 
-def dot(a, b, alpha=1, c=None, beta=0):
+def dot(a, b, out=None, alpha=1, c=None, beta=0):
+    if a.ndim != 2 or b.ndim != 2:
+        return numpy.dot(a, b, out=out)
+    if out is not None:
+        if c is None:
+            c = out
+        elif c is not out:
+            raise KeyError("out and c cannot be specified at the same time.")
+
     atype = a.dtype
     btype = b.dtype
 
@@ -905,12 +907,6 @@ else:
     norm = numpy.linalg.norm
 del(LooseVersion)
 
-def cond(x, p=None):
-    '''Compute the condition number'''
-    if getattr(x, "ndim", None) == 2 or p is not None:
-        return jnp.linalg.cond(x, p)
-    else:
-        return jnp.asarray([jnp.linalg.cond(xi) for xi in x])
 
 def cartesian_prod(arrays, out=None):
     '''
@@ -982,6 +978,8 @@ def direct_sum(subscripts, *operands):
     0.0
     '''
 
+    from pyscf import numpy as np
+
     def sign_and_symbs(subscript):
         ''' sign list and notation list'''
         subscript = subscript.replace(' ', '').replace(',', '+')
@@ -1005,12 +1003,12 @@ def direct_sum(subscripts, *operands):
     assert(len(src) == len(operands))
 
     for i, symb in enumerate(src):
-        op = jnp.asarray(operands[i])
+        op = np.asarray(operands[i])
         assert(len(symb) == op.ndim)
         unisymb = set(symb)
         if len(unisymb) != len(symb):
             unisymb = ''.join(unisymb)
-            op = jnp.einsum('->'.join((symb, unisymb)), op)
+            op = np.einsum('->'.join((symb, unisymb)), op)
             src[i] = unisymb
         if i == 0:
             if sign[i] == '+':
@@ -1022,7 +1020,7 @@ def direct_sum(subscripts, *operands):
         else:
             out = out.reshape(out.shape+(1,)*op.ndim) - op
 
-    out = jnp.einsum('->'.join((''.join(src), dest)), out)
+    out = np.einsum('->'.join((''.join(src), dest)), out)
     #out.flags.writeable = True  # old numpy has this issue
     return out
 
@@ -1110,8 +1108,9 @@ def tag_array(a, **kwargs):
     '''Attach attributes to numpy ndarray. The attribute name and value are
     obtained from the keyword arguments.
     '''
-    if PYSCFAD:
-        # no tags allowed for jax.numpy.array
+    numpy_backend = getattr(__config__, "pyscf_numpy_backend", "pyscf")
+    if numpy_backend.upper() != "PYSCF":
+        # no tags allowed for non-numpy arrays
         return a
 
     # Make a shadow copy in any circumstance by converting it to an nparray.

@@ -21,14 +21,15 @@ import sys
 import json
 import ctypes
 import warnings
-import numpy as np
+import numpy
 import scipy.linalg
 try:
     from scipy.special import factorial2
 except ImportError:
     from scipy.misc import factorial2
-from scipy.special import erf, erfc
+from pyscf.scipy.special import erf, erfc
 import scipy.optimize
+from pyscf import numpy as np
 import pyscf.lib.parameters as param
 from pyscf import lib
 from pyscf.dft import radi
@@ -53,16 +54,6 @@ EXP_DELIMITER = getattr(__config__, 'pbc_gto_cell_split_basis_exp_delimiter',
                         [1.0, 0.5, 0.25, 0.1, 0])
 # cutoff penalty due to lattice summation
 LATTICE_SUM_PENALTY = 1e-1
-
-PYSCFAD = getattr(__config__, "pyscfad", False)
-if PYSCFAD:
-    from pyscfad.lib import numpy as jnp
-    from jax.scipy.special import erf as jax_erf
-    from jax.scipy.special import erfc as jax_erfc
-else:
-    jnp = np
-    jax_erf = erf
-    jax_erfc = erfc
 
 # For code compatiblity in python-2 and python-3
 if sys.version_info >= (3,):
@@ -224,7 +215,7 @@ def dumps(cell):
         if k in celldic:
             del(celldic[k])
     for k in celldic:
-        if isinstance(celldic[k], np.ndarray):
+        if isinstance(celldic[k], numpy.ndarray):
             celldic[k] = celldic[k].tolist()
     celldic['atom'] = repr(cell.atom)
     celldic['basis']= repr(cell.basis)
@@ -276,10 +267,10 @@ def loads(cellstr):
     cell.basis = eval(cell.basis)
     cell.pseudo = eval(cell.pseudo)
     cell.ecp = eval(cell.ecp)
-    cell._atm = np.array(cell._atm, dtype=np.int32)
-    cell._bas = np.array(cell._bas, dtype=np.int32)
-    cell._env = np.array(cell._env, dtype=np.double)
-    cell._ecpbas = np.array(cell._ecpbas, dtype=np.int32)
+    cell._atm = numpy.array(cell._atm, dtype=numpy.int32)
+    cell._bas = numpy.array(cell._bas, dtype=numpy.int32)
+    cell._env = numpy.array(cell._env, dtype=numpy.double)
+    cell._ecpbas = numpy.array(cell._ecpbas, dtype=numpy.int32)
 
     return cell
 
@@ -295,14 +286,14 @@ def conc_cell(cell1, cell2):
     if len(cell2._ecpbas) == 0:
         cell3._ecpbas = cell1._ecpbas
     else:
-        ecpbas2 = np.copy(cell2._ecpbas)
+        ecpbas2 = numpy.copy(cell2._ecpbas)
         ecpbas2[:,mole.ATOM_OF  ] += natm_off
         ecpbas2[:,mole.PTR_EXP  ] += off
         ecpbas2[:,mole.PTR_COEFF] += off
         if len(cell1._ecpbas) == 0:
             cell3._ecpbas = ecpbas2
         else:
-            cell3._ecpbas = np.hstack((cell1._ecpbas, ecpbas2))
+            cell3._ecpbas = numpy.hstack((cell1._ecpbas, ecpbas2))
 
     cell3.verbose = cell1.verbose
     cell3.output = cell1.output
@@ -316,7 +307,7 @@ def conc_cell(cell1, cell2):
     cell3._basis.update(cell1._basis)
     # Whether to update the lattice_vectors?
     cell3.a = cell1.a
-    cell3.mesh = np.max((cell1.mesh, cell2.mesh), axis=0)
+    cell3.mesh = numpy.max((cell1.mesh, cell2.mesh), axis=0)
 
     ke_cutoff1 = cell1.ke_cutoff
     ke_cutoff2 = cell2.ke_cutoff
@@ -362,11 +353,11 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
 
     if kpts is None:
         if kpt is not None:
-            kpts_lst = np.reshape(kpt, (1,3))
+            kpts_lst = numpy.reshape(kpt, (1,3))
         else:
-            kpts_lst = np.zeros((1,3))
+            kpts_lst = numpy.zeros((1,3))
     else:
-        kpts_lst = np.reshape(kpts, (-1,3))
+        kpts_lst = numpy.reshape(kpts, (-1,3))
     nkpts = len(kpts_lst)
 
     pcell = copy.copy(cell1)
@@ -382,7 +373,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
     ao_loc = moleintor.make_loc(bas, intor)
     ni = ao_loc[i1] - ao_loc[i0]
     nj = ao_loc[j1] - ao_loc[j0]
-    out = np.empty((nkpts,comp,ni,nj), dtype=np.complex128)
+    out = numpy.empty((nkpts,comp,ni,nj), dtype=numpy.complex128)
 
     if hermi == 0:
         aosym = 's1'
@@ -400,14 +391,14 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
         cpbcopt = lib.c_null_ptr()
 
     Ls = cell1.get_lattice_Ls(rcut=max(cell1.rcut, cell2.rcut))
-    expkL = np.asarray(np.exp(1j*np.dot(kpts_lst, Ls.T)), order='C')
+    expkL = numpy.asarray(numpy.exp(1j*numpy.dot(kpts_lst, Ls.T)), order='C')
     drv = libpbc.PBCnr2c_drv
 
     kderiv = kwargs.get('kderiv', 0)
     if kderiv > 0:
         hermi = 0
         aosym = 's1'
-        mat = np.empty((nkpts,(3**kderiv)*comp,ni,nj), dtype=np.complex128)
+        mat = numpy.empty((nkpts,(3**kderiv)*comp,ni,nj), dtype=numpy.complex128)
         if kderiv == 1:
             fac = 1j * lib.einsum('kl,lx->xkl', expkL, Ls)
         elif kderiv == 2:
@@ -416,7 +407,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
             raise NotImplementedError
 
         for x in range(fac.shape[0]):
-            facx = np.asarray(fac[x], order='C')
+            facx = numpy.asarray(fac[x], order='C')
             drv(fintor, fill, out.ctypes.data_as(ctypes.c_void_p),
                 ctypes.c_int(nkpts), ctypes.c_int(comp), ctypes.c_int(len(Ls)),
                 Ls.ctypes.data_as(ctypes.c_void_p),
@@ -457,7 +448,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
             v = v.real
         mat.append(v)
 
-    if kpts is None or np.shape(kpts) == (3,):  # A single k-point
+    if kpts is None or numpy.shape(kpts) == (3,):  # A single k-point
         mat = mat[0]
     return mat
 
@@ -488,9 +479,9 @@ def _estimate_rcut(alpha, l, c, precision=INTEGRAL_PRECISION):
     function at rcut ~ c*r^(l+2)*exp(-alpha*r^2) < precision'''
     C = (c**2)*(2*l+1) / (precision * LATTICE_SUM_PENALTY)
     r0 = 20
-    # +1. to ensure np.log returning positive value
-    r0 = np.sqrt(2.*np.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
-    rcut = np.sqrt(2.*np.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
+    # +1. to ensure numpy.log returning positive value
+    r0 = numpy.sqrt(2.*numpy.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
+    rcut = numpy.sqrt(2.*numpy.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
     return rcut
 
 def bas_rcut(cell, bas_id, precision=INTEGRAL_PRECISION):
@@ -511,24 +502,24 @@ def _estimate_ke_cutoff(alpha, l, c, precision=INTEGRAL_PRECISION, weight=1.):
     # repulsion integrals. The energy cutoff for nuclear attraction is larger
     # than the energy cutoff for ERIs.  The estimated error is roughly
     #     error ~ 64 pi^3 c^2 /((2l+1)!!(4a)^l) (2Ecut)^{l+.5} e^{-Ecut/4a}
-    # log_k0 = 3 + np.log(alpha) / 2
+    # log_k0 = 3 + numpy.log(alpha) / 2
     # l2fac2 = factorial2(l*2+1)
-    # log_rest = np.log(precision*l2fac2*(4*alpha)**l / (16*np.pi**2*c**2))
+    # log_rest = numpy.log(precision*l2fac2*(4*alpha)**l / (16*numpy.pi**2*c**2))
     # Enuc_cut = 4*alpha * (log_k0*(2*l+1) - log_rest)
     # Enuc_cut[Enuc_cut <= 0] = .5
-    # log_k0 = .5 * np.log(Ecut*2)
+    # log_k0 = .5 * numpy.log(Ecut*2)
     # Enuc_cut = 4*alpha * (log_k0*(2*l+1) - log_rest)
     # Enuc_cut[Enuc_cut <= 0] = .5
     #
     # However, nuclear attraction can be evaluated with the trick of Ewald
     # summation which largely reduces the requirements to the energy cutoff.
     # In practice, the cutoff estimation for ERIs as below should be enough.
-    log_k0 = 3 + np.log(alpha) / 2
+    log_k0 = 3 + numpy.log(alpha) / 2
     l2fac2 = factorial2(l*2+1)
-    log_rest = np.log(precision*l2fac2**2*(4*alpha)**(l*2+1) / (128*np.pi**4*c**4))
+    log_rest = numpy.log(precision*l2fac2**2*(4*alpha)**(l*2+1) / (128*numpy.pi**4*c**4))
     Ecut = 2*alpha * (log_k0*(4*l+3) - log_rest)
     Ecut[Ecut <= 0] = .5
-    log_k0 = .5 * np.log(Ecut*2)
+    log_k0 = .5 * numpy.log(Ecut*2)
     Ecut = 2*alpha * (log_k0*(4*l+3) - log_rest)
     Ecut[Ecut <= 0] = .5
     return Ecut
@@ -545,22 +536,22 @@ def estimate_ke_cutoff(cell, precision=INTEGRAL_PRECISION):
     return Ecut_max
 
 def error_for_ke_cutoff(cell, ke_cutoff):
-    kmax = np.sqrt(ke_cutoff*2)
+    kmax = numpy.sqrt(ke_cutoff*2)
     errmax = 0
     for i in range(cell.nbas):
         l = cell.bas_angular(i)
         es = cell.bas_exp(i)
         cs = abs(cell.bas_ctr_coeff(i)).max(axis=1)
-        fac = (256*np.pi**4*cs**4 * factorial2(l*4+3)
+        fac = (256*numpy.pi**4*cs**4 * factorial2(l*4+3)
                / factorial2(l*2+1)**2)
-        efac = np.exp(-ke_cutoff/(2*es))
+        efac = numpy.exp(-ke_cutoff/(2*es))
         err1 = .5*fac/(4*es)**(2*l+1) * kmax**(4*l+3) * efac
         errmax = max(errmax, err1.max())
-        if np.any(ke_cutoff < 5*es):
+        if numpy.any(ke_cutoff < 5*es):
             err2 = (1.41*efac+2.51)*fac/(4*es)**(2*l+2) * kmax**(4*l+5)
             errmax = max(errmax, err2[ke_cutoff<5*es].max())
-        if np.any(ke_cutoff < es):
-            err2 = (1.41*efac+2.51)*fac/2**(2*l+2) * np.sqrt(2*es)
+        if numpy.any(ke_cutoff < es):
+            err2 = (1.41*efac+2.51)*fac/2**(2*l+2) * numpy.sqrt(2*es)
             errmax = max(errmax, err2[ke_cutoff<es].max())
     return errmax
 
@@ -578,13 +569,13 @@ def get_bounding_sphere(cell, rcut):
         cut : ndarray of 3 ints defining N_x
     '''
     #Gmat = cell.reciprocal_vectors(norm_to=1)
-    #n1 = np.ceil(lib.norm(Gmat[0,:])*rcut)
-    #n2 = np.ceil(lib.norm(Gmat[1,:])*rcut)
-    #n3 = np.ceil(lib.norm(Gmat[2,:])*rcut)
-    #cut = np.array([n1, n2, n3]).astype(int)
+    #n1 = numpy.ceil(lib.norm(Gmat[0,:])*rcut)
+    #n2 = numpy.ceil(lib.norm(Gmat[1,:])*rcut)
+    #n3 = numpy.ceil(lib.norm(Gmat[2,:])*rcut)
+    #cut = numpy.array([n1, n2, n3]).astype(int)
     b = cell.reciprocal_vectors(norm_to=1)
     heights_inv = lib.norm(b, axis=1)
-    nimgs = np.ceil(rcut*heights_inv).astype(int)
+    nimgs = numpy.ceil(rcut*heights_inv).astype(int)
 
     for i in range(cell.dimension, 3):
         nimgs[i] = 1
@@ -619,11 +610,11 @@ def get_Gv_weights(cell, mesh=None, **kwargs):
         mesh = [2*n+1 for n in kwargs['gs']]
 
     # Default, the 3D uniform grids
-    rx = np.fft.fftfreq(mesh[0], 1./mesh[0])
-    ry = np.fft.fftfreq(mesh[1], 1./mesh[1])
-    rz = np.fft.fftfreq(mesh[2], 1./mesh[2])
+    rx = numpy.fft.fftfreq(mesh[0], 1./mesh[0])
+    ry = numpy.fft.fftfreq(mesh[1], 1./mesh[1])
+    rz = numpy.fft.fftfreq(mesh[2], 1./mesh[2])
     b = cell.reciprocal_vectors()
-    weights = abs(np.linalg.det(b))
+    weights = abs(numpy.linalg.det(b))
 
     if (cell.dimension < 2 or
         (cell.dimension == 2 and cell.low_dim_ft_type == 'inf_vacuum')):
@@ -631,28 +622,28 @@ def get_Gv_weights(cell, mesh=None, **kwargs):
             rx, wx = _non_uniform_Gv_base(mesh[0]//2)
             ry, wy = _non_uniform_Gv_base(mesh[1]//2)
             rz, wz = _non_uniform_Gv_base(mesh[2]//2)
-            rx /= np.linalg.norm(b[0])
-            ry /= np.linalg.norm(b[1])
-            rz /= np.linalg.norm(b[2])
-            weights = np.einsum('i,j,k->ijk', wx, wy, wz).reshape(-1)
+            rx /= numpy.linalg.norm(b[0])
+            ry /= numpy.linalg.norm(b[1])
+            rz /= numpy.linalg.norm(b[2])
+            weights = numpy.einsum('i,j,k->ijk', wx, wy, wz).reshape(-1)
         elif cell.dimension == 1:
-            wx = np.repeat(np.linalg.norm(b[0]), mesh[0])
+            wx = numpy.repeat(numpy.linalg.norm(b[0]), mesh[0])
             ry, wy = _non_uniform_Gv_base(mesh[1]//2)
             rz, wz = _non_uniform_Gv_base(mesh[2]//2)
-            ry /= np.linalg.norm(b[1])
-            rz /= np.linalg.norm(b[2])
-            weights = np.einsum('i,j,k->ijk', wx, wy, wz).reshape(-1)
+            ry /= numpy.linalg.norm(b[1])
+            rz /= numpy.linalg.norm(b[2])
+            weights = numpy.einsum('i,j,k->ijk', wx, wy, wz).reshape(-1)
         elif cell.dimension == 2:
-            area = np.linalg.norm(np.cross(b[0], b[1]))
-            wxy = np.repeat(area, mesh[0]*mesh[1])
+            area = numpy.linalg.norm(numpy.cross(b[0], b[1]))
+            wxy = numpy.repeat(area, mesh[0]*mesh[1])
             rz, wz = _non_uniform_Gv_base(mesh[2]//2)
-            rz /= np.linalg.norm(b[2])
-            weights = np.einsum('i,k->ik', wxy, wz).reshape(-1)
+            rz /= numpy.linalg.norm(b[2])
+            weights = numpy.einsum('i,k->ik', wxy, wz).reshape(-1)
 
     Gvbase = (rx, ry, rz)
-    Gv = np.dot(lib.cartesian_prod(Gvbase), b)
+    Gv = numpy.dot(lib.cartesian_prod(Gvbase), b)
     # 1/cell.vol == det(b)/(2pi)^3
-    weights *= 1/(2*np.pi)**3
+    weights *= 1/(2*numpy.pi)**3
     return Gv, Gvbase, weights
 
 def _non_uniform_Gv_base(n):
@@ -660,8 +651,8 @@ def _non_uniform_Gv_base(n):
     #rs, ws = radi.treutler_ahlrichs(n)
     #rs, ws = radi.mura_knowles(n)
     rs, ws = radi.gauss_chebyshev(n)
-    #return np.hstack((0,rs,-rs[::-1])), np.hstack((0,ws,ws[::-1]))
-    return np.hstack((rs,-rs[::-1])), np.hstack((ws,ws[::-1]))
+    #return numpy.hstack((0,rs,-rs[::-1])), numpy.hstack((0,ws,ws[::-1]))
+    return numpy.hstack((rs,-rs[::-1])), numpy.hstack((ws,ws[::-1]))
 
 def get_SI(cell, Gv=None):
     '''Calculate the structure factor (0D, 1D, 2D, 3D) for all atoms; see MH (3.34).
@@ -673,22 +664,22 @@ def get_SI(cell, Gv=None):
             G vectors
 
     Returns:
-        SI : (natm, ngrids) ndarray, dtype=np.complex128
+        SI : (natm, ngrids) ndarray, dtype=numpy.complex128
             The structure factor for each atom at each G-vector.
     '''
     coords = cell.atom_coords()
-    ngrids = np.prod(cell.mesh)
+    ngrids = numpy.prod(cell.mesh)
     if Gv is None or Gv.shape[0] == ngrids:
         basex, basey, basez = cell.get_Gv_weights(cell.mesh)[1]
         b = cell.reciprocal_vectors()
-        rb = np.dot(coords, b.T)
-        SIx = np.exp(-1j*np.einsum('z,g->zg', rb[:,0], basex))
-        SIy = np.exp(-1j*np.einsum('z,g->zg', rb[:,1], basey))
-        SIz = np.exp(-1j*np.einsum('z,g->zg', rb[:,2], basez))
+        rb = numpy.dot(coords, b.T)
+        SIx = numpy.exp(-1j*numpy.einsum('z,g->zg', rb[:,0], basex))
+        SIy = numpy.exp(-1j*numpy.einsum('z,g->zg', rb[:,1], basey))
+        SIz = numpy.exp(-1j*numpy.einsum('z,g->zg', rb[:,2], basez))
         SI = SIx[:,:,None,None] * SIy[:,None,:,None] * SIz[:,None,None,:]
         SI = SI.reshape(-1,ngrids)
     else:
-        SI = np.exp(-1j*np.dot(coords, Gv.T))
+        SI = numpy.exp(-1j*numpy.dot(coords, Gv.T))
     return SI
 
 def get_ewald_params(cell, precision=None, mesh=None):
@@ -721,20 +712,20 @@ def get_ewald_params(cell, precision=None, mesh=None):
         # estimation for long range part based on exp(G^2/(4*eta^2)) does not work for
         # non-uniform grids.  Smooth model density is preferred.
         ew_cut = cell.rcut
-        ew_eta = np.sqrt(max(np.log(4*np.pi*ew_cut**2/precision)/ew_cut**2, .1))
+        ew_eta = numpy.sqrt(max(numpy.log(4*numpy.pi*ew_cut**2/precision)/ew_cut**2, .1))
     else:
         if mesh is None:
             mesh = cell.mesh
         mesh = _cut_mesh_for_ewald(cell, mesh)
-        Gmax = min(np.asarray(mesh)//2 * lib.norm(cell.reciprocal_vectors(), axis=1))
-        log_precision = np.log(precision/(4*np.pi*(Gmax+1e-100)**2))
-        ew_eta = np.sqrt(-Gmax**2/(4*log_precision)) + 1e-100
+        Gmax = min(numpy.asarray(mesh)//2 * lib.norm(cell.reciprocal_vectors(), axis=1))
+        log_precision = numpy.log(precision/(4*numpy.pi*(Gmax+1e-100)**2))
+        ew_eta = numpy.sqrt(-Gmax**2/(4*log_precision)) + 1e-100
         ew_cut = _estimate_rcut(ew_eta**2, 0, 1., precision)
     return ew_eta, ew_cut
 
 def _cut_mesh_for_ewald(cell, mesh):
-    mesh = np.copy(mesh)
-    mesh_max = np.asarray(np.linalg.norm(cell.lattice_vectors(), axis=1) * 2,
+    mesh = numpy.copy(mesh)
+    mesh_max = numpy.asarray(numpy.linalg.norm(cell.lattice_vectors(), axis=1) * 2,
                           dtype=int)  # roughly 2 grids per bohr
     if (cell.dimension < 2 or
         (cell.dimension == 2 and cell.low_dim_ft_type == 'inf_vacuum')):
@@ -772,9 +763,9 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     ewovrl = cell._ewald_sr(coords, chargs, ew_eta, ew_cut)
 
     # last line of Eq. (F.5) in Martin
-    ewself  = -.5 * np.dot(chargs,chargs) * 2 * ew_eta / np.sqrt(np.pi)
+    ewself  = -.5 * numpy.dot(chargs,chargs) * 2 * ew_eta / numpy.sqrt(numpy.pi)
     if cell.dimension == 3:
-        ewself += -.5 * np.sum(chargs)**2 * np.pi/(ew_eta**2 * cell.vol)
+        ewself += -.5 * numpy.sum(chargs)**2 * numpy.pi/(ew_eta**2 * cell.vol)
 
     # g-space sum (using g grid) (Eq. (F.6) in Martin, but note errors as below)
     # Eq. (F.6) in Martin is off by a factor of 2, the
@@ -788,14 +779,14 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     #   http://www.fisica.uniud.it/~giannozz/public/ewald.pdf
     mesh = _cut_mesh_for_ewald(cell, cell.mesh)
     Gv, Gvbase, weights = cell.get_Gv_weights(mesh)
-    absG2 = np.einsum('gi,gi->g', Gv, Gv)
+    absG2 = numpy.einsum('gi,gi->g', Gv, Gv)
     absG2[absG2==0] = 1e200
     if cell.dimension != 2 or cell.low_dim_ft_type == 'inf_vacuum':
-        coulG = 4*np.pi / absG2
+        coulG = 4*numpy.pi / absG2
         coulG *= weights
-        ZSI = jnp.einsum("i,ij->j", chargs, cell.get_SI(Gv))
-        ZexpG2 = ZSI * np.exp(-absG2/(4*ew_eta**2))
-        ewg = .5 * jnp.einsum('i,i,i', ZSI.conj(), ZexpG2, coulG).real
+        ZSI = np.einsum("i,ij->j", chargs, cell.get_SI(Gv))
+        ZexpG2 = ZSI * numpy.exp(-absG2/(4*ew_eta**2))
+        ewg = .5 * np.einsum('i,i,i', ZSI.conj(), ZexpG2, coulG).real
 
     elif cell.dimension == 2:  # Truncated Coulomb
         # The following 2D ewald summation is taken from:
@@ -804,36 +795,36 @@ def ewald(cell, ew_eta=None, ew_cut=None):
             Gnorm_z = Gnorm*z
             large_idx = ops.index[Gnorm_z > 20.0]
             ok_idx = ops.index[Gnorm_z <= 20.0]
-            ret = jnp.zeros_like(Gnorm_z)
+            ret = np.zeros_like(Gnorm_z)
             x = Gnorm/2./eta + eta*z
-            with np.errstate(over='ignore'):
-                erfcx = jax_erfc(x)
-                #ret[~large_idx] = np.exp(Gnorm_z[~large_idx]) * erfcx[~large_idx]
+            with numpy.errstate(over='ignore'):
+                erfcx = erfc(x)
+                #ret[~large_idx] = numpy.exp(Gnorm_z[~large_idx]) * erfcx[~large_idx]
                 ret = ops.index_update(ret, ok_idx,
-                                       jnp.exp(Gnorm_z[ok_idx]) * erfcx[ok_idx])
-                #ret[ large_idx] = np.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx]
+                                       np.exp(Gnorm_z[ok_idx]) * erfcx[ok_idx])
+                #ret[ large_idx] = numpy.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx]
                 ret = ops.index_update(ret, large_idx,
-                                       jnp.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx])
+                                       np.exp((Gnorm*z-x**2)[large_idx]) * erfcx[large_idx])
             return ret
         def gn(eta,Gnorm,z):
-            return np.pi/Gnorm*(fn(eta,Gnorm,z) + fn(eta,Gnorm,-z))
+            return numpy.pi/Gnorm*(fn(eta,Gnorm,z) + fn(eta,Gnorm,-z))
         def gn0(eta,z):
-            return -2*np.pi*(z*jax_erf(eta*z) + jnp.exp(-(eta*z)**2)/eta/np.sqrt(np.pi))
+            return -2*numpy.pi*(z*erf(eta*z) + np.exp(-(eta*z)**2)/eta/numpy.sqrt(numpy.pi))
         b = cell.reciprocal_vectors()
-        inv_area = np.linalg.norm(np.cross(b[0], b[1]))/(2*np.pi)**2
+        inv_area = numpy.linalg.norm(numpy.cross(b[0], b[1]))/(2*numpy.pi)**2
         # Perform the reciprocal space summation over  all reciprocal vectors
         # within the x,y plane.
-        planarG2_idx = np.logical_and(Gv[:,2] == 0, absG2 > 0.0)
+        planarG2_idx = numpy.logical_and(Gv[:,2] == 0, absG2 > 0.0)
         Gv = Gv[planarG2_idx]
         absG2 = absG2[planarG2_idx]
         absG = absG2**(0.5)
         # Performing the G != 0 summation.
         rij = coords[:,None,:] - coords[None,:,:]
-        Gdotr = jnp.einsum('ijx,gx->ijg', rij, Gv)
-        ewg = jnp.einsum('i,j,ijg,ijg->', chargs, chargs, jnp.cos(Gdotr),
+        Gdotr = np.einsum('ijx,gx->ijg', rij, Gv)
+        ewg = np.einsum('i,j,ijg,ijg->', chargs, chargs, np.cos(Gdotr),
                          gn(ew_eta,absG,rij[:,:,2:3]))
         # Performing the G == 0 summation.
-        ewg += jnp.einsum('i,j,ij->', chargs, chargs, gn0(ew_eta,rij[:,:,2]))
+        ewg += np.einsum('i,j,ij->', chargs, chargs, gn0(ew_eta,rij[:,:,2]))
         ewg *= inv_area*0.5
 
     else:
@@ -858,11 +849,11 @@ def _ewald_sr(cell, coords=None, charges=None, ew_eta=None, ew_cut=None, Lall=No
         Lall = cell.get_lattice_Ls(rcut=ew_cut)
 
     rLij = coords[:,None,:] - coords[None,:,:] + Lall[:,None,None,:]
-    r = jnp.sqrt(jnp.einsum('Lijx,Lijx->Lij', rLij, rLij))
+    r = np.sqrt(np.einsum('Lijx,Lijx->Lij', rLij, rLij))
     rLij = None
     #r[r<1e-16] = 1e200
-    r = jnp.where(r > 1e-16, r, 1e200)
-    ewovrl = .5 * jnp.einsum('i,j,Lij->', charges, charges, jax_erfc(ew_eta *  r) / r)
+    r = np.where(r > 1e-16, r, 1e200)
+    ewovrl = .5 * np.einsum('i,j,Lij->', charges, charges, erfc(ew_eta *  r) / r)
     return ewovrl
 
 energy_nuc = ewald
@@ -896,16 +887,16 @@ def make_kpts(cell, nks, wrap_around=WRAP_AROUND, with_gamma_point=WITH_GAMMA,
     ks_each_axis = []
     for n in nks:
         if with_gamma_point or scaled_center is not None:
-            ks = np.arange(n, dtype=float) / n
+            ks = numpy.arange(n, dtype=float) / n
         else:
-            ks = (np.arange(n)+.5)/n-.5
+            ks = (numpy.arange(n)+.5)/n-.5
         if wrap_around:
             ks[ks>=.5] -= 1
         ks_each_axis.append(ks)
     if scaled_center is None:
         scaled_center = [0.0,0.0,0.0]
     scaled_kpts = lib.cartesian_prod(ks_each_axis)
-    scaled_kpts += np.array(scaled_center)
+    scaled_kpts += numpy.array(scaled_center)
     kpts = cell.get_abs_kpts(scaled_kpts)
     return kpts
 
@@ -925,10 +916,10 @@ def get_uniform_grids(cell, mesh=None, **kwargs):
         warnings.warn('cell.gs is deprecated.  It is replaced by cell.mesh,'
                       'the number of PWs (=2*gs+1) along each direction.')
         mesh = [2*n+1 for n in kwargs['gs']]
-    mesh = np.asarray(mesh, dtype=np.double)
-    qv = lib.cartesian_prod([np.arange(x) for x in mesh])
-    a_frac = np.einsum('i,ij->ij', 1./mesh, cell.lattice_vectors())
-    coords = np.dot(qv, a_frac)
+    mesh = numpy.asarray(mesh, dtype=numpy.double)
+    qv = lib.cartesian_prod([numpy.arange(x) for x in mesh])
+    a_frac = numpy.einsum('i,ij->ij', 1./mesh, cell.lattice_vectors())
+    coords = numpy.dot(qv, a_frac)
     return coords
 gen_uniform_grids = get_uniform_grids
 
@@ -999,10 +990,10 @@ def _split_basis(cell, delimiter=EXP_DELIMITER):
         else:
             degen = l * 2 + 1
 
-        mask = np.ones(es.size, dtype=bool)
+        mask = numpy.ones(es.size, dtype=bool)
         count = 0
         for thr in delimiter:
-            idx = np.where(mask & (es >= thr))[0]
+            idx = numpy.where(mask & (es >= thr))[0]
             np1 = len(idx)
             if np1 > 0:
                 pcoeff0, pcoeff1 = pcoeff1, pcoeff1 + np1 * nc
@@ -1016,10 +1007,10 @@ def _split_basis(cell, delimiter=EXP_DELIMITER):
                 mask[idx] = False
                 pexp += np1
                 count += 1
-        contr_coeff.append(np.vstack([np.eye(degen*nc)] * count))
+        contr_coeff.append(numpy.vstack([numpy.eye(degen*nc)] * count))
 
     pcell = copy.copy(cell)
-    pcell._bas = np.asarray(np.vstack(_bas), dtype=np.int32)
+    pcell._bas = numpy.asarray(numpy.vstack(_bas), dtype=numpy.int32)
     pcell._env = _env
     return pcell, scipy.linalg.block_diag(*contr_coeff)
 
@@ -1036,7 +1027,7 @@ def tot_electrons(cell, nkpts=1):
 
 def _mesh_inf_vaccum(cell):
     #prec ~ exp(-0.436392335*mesh -2.99944305)*nelec
-    meshz = (np.log(cell.nelectron/cell.precision)-2.99944305)/0.436392335
+    meshz = (numpy.log(cell.nelectron/cell.precision)-2.99944305)/0.436392335
     # meshz has to be even number due to the symmetry on z+ and z-
     return int(meshz*.5 + .999) * 2
 
@@ -1306,14 +1297,14 @@ class Cell(mole.Mole):
         _built = self._built
         mole.Mole.build(self, False, parse_arg, *args, **kwargs)
 
-        exp_min = np.array([self.bas_exp(ib).min() for ib in range(self.nbas)])
+        exp_min = numpy.array([self.bas_exp(ib).min() for ib in range(self.nbas)])
         if self.exp_to_discard is None:
-            if np.any(exp_min < 0.1):
+            if numpy.any(exp_min < 0.1):
                 sys.stderr.write('''WARNING!
   Very diffused basis functions are found in the basis set. They may lead to severe
   linear dependence and numerical instability.  You can set  cell.exp_to_discard=0.1
   to remove the diffused Gaussians whose exponents are less than 0.1.\n\n''')
-        elif np.any(exp_min < self.exp_to_discard):
+        elif numpy.any(exp_min < self.exp_to_discard):
             # Discard functions of small exponents in basis
             _basis = {}
             for symb, basis_now in self._basis.items():
@@ -1322,16 +1313,16 @@ class Cell(mole.Mole):
                     l = b[0]
                     if isinstance(b[1], int):
                         kappa = b[1]
-                        b_coeff = np.array(b[2:])
+                        b_coeff = numpy.array(b[2:])
                     else:
                         kappa = 0
-                        b_coeff = np.array(b[1:])
+                        b_coeff = numpy.array(b[1:])
                     es = b_coeff[:,0]
-                    if np.any(es < self.exp_to_discard):
+                    if numpy.any(es < self.exp_to_discard):
                         b_coeff = b_coeff[es>=self.exp_to_discard]
 # contraction coefficients may be completely zero after removing one primitive
 # basis. Removing the zero-coefficient basis.
-                        b_coeff = b_coeff[:,np.all(b_coeff!=0, axis=0)]
+                        b_coeff = b_coeff[:,numpy.all(b_coeff!=0, axis=0)]
                         if b_coeff.size > 0:
                             if kappa == 0:
                                 basis_add.append([l] + b_coeff.tolist())
@@ -1354,14 +1345,14 @@ class Cell(mole.Mole):
                 ptr = self._bas[ib,mole.PTR_COEFF]
                 cs = self._env[ptr:ptr+nprim*nc].reshape(nc,nprim).T
 
-                if np.any(es < self.exp_to_discard):
+                if numpy.any(es < self.exp_to_discard):
                     cs = cs[es>=self.exp_to_discard]
                     es = es[es>=self.exp_to_discard]
                     nprim_old, nc_old = nprim, nc
 
 # contraction coefficients may be completely zero after removing one primitive
 # basis. Removing the zero-coefficient basis.
-                    cs = cs[:,np.all(cs!=0, axis=0)]
+                    cs = cs[:,numpy.all(cs!=0, axis=0)]
                     nprim, nc = cs.shape
                     self._bas[ib,mole.NPRIM_OF] = nprim
                     self._bas[ib,mole.NCTR_OF] = nc
@@ -1376,7 +1367,7 @@ class Cell(mole.Mole):
                 if nprim > 0:
                     steep_shls.append(ib)
             self._env = _env
-            self._bas = np.asarray(self._bas[steep_shls], order='C')
+            self._bas = numpy.asarray(self._bas[steep_shls], order='C')
             logger.info(self, 'Discarded %d diffused primitive functions, '
                         '%d contracted functions', nprim_drop, nctr_drop)
             #logger.debug1(self, 'Old shells %s', steep_shls)
@@ -1394,16 +1385,16 @@ class Cell(mole.Mole):
             self._rcut_from_build = True
 
         _a = self.lattice_vectors()
-        if np.linalg.det(_a) < 0:
+        if numpy.linalg.det(_a) < 0:
             sys.stderr.write('''WARNING!
   Lattice are not in right-handed coordinate system. This can cause wrong value for some integrals.
   It's recommended to resort the lattice vectors to\na = %s\n\n''' % _a[[0,2,1]])
 
         if self.dimension == 2 and self.low_dim_ft_type != 'inf_vacuum':
             # check vacuum size. See Fig 1 of PRB, 73, 2015119
-            #Lz_guess = self.rcut*(1+np.sqrt(2))
+            #Lz_guess = self.rcut*(1+numpy.sqrt(2))
             Lz_guess = self.rcut * 2
-            if np.linalg.norm(_a[2]) < 0.7 * Lz_guess:
+            if numpy.linalg.norm(_a[2]) < 0.7 * Lz_guess:
                 sys.stderr.write('''WARNING!
   Size of vacuum may not be enough. The recommended vacuum size is %s AA (%s Bohr)\n\n'''
                                  % (Lz_guess*param.BOHR, Lz_guess))
@@ -1442,10 +1433,10 @@ class Cell(mole.Mole):
             if ke_cutoff is not None:
                 logger.info(self, 'ke_cutoff = %s', ke_cutoff)
                 logger.info(self, '    = %s mesh (%d PWs)',
-                            self.mesh, np.prod(self.mesh))
+                            self.mesh, numpy.prod(self.mesh))
             else:
                 logger.info(self, 'mesh = %s (%d PWs)',
-                            self.mesh, np.prod(self.mesh))
+                            self.mesh, numpy.prod(self.mesh))
                 Ecut = pbctools.mesh_to_cutoff(self.lattice_vectors(), self.mesh)
                 logger.info(self, '    = ke_cutoff %s', Ecut)
         return self
@@ -1453,16 +1444,16 @@ class Cell(mole.Mole):
 
     @property
     def h(self):
-        return np.asarray(self.a).T
+        return numpy.asarray(self.a).T
     @h.setter
     def h(self, x):
         warnings.warn('cell.h is deprecated.  It is replaced by the '
                       '(row-based) lattice vectors cell.a:  cell.a = cell.h.T\n')
         if isinstance(x, (str, unicode)):
             x = x.replace(';',' ').replace(',',' ').replace('\n',' ')
-            self.a = np.asarray([float(z) for z in x.split()]).reshape(3,3).T
+            self.a = numpy.asarray([float(z) for z in x.split()]).reshape(3,3).T
         else:
-            self.a = np.asarray(x).T
+            self.a = numpy.asarray(x).T
 
     @property
     def _h(self):
@@ -1470,7 +1461,7 @@ class Cell(mole.Mole):
 
     @property
     def vol(self):
-        return abs(np.linalg.det(self.lattice_vectors()))
+        return abs(numpy.linalg.det(self.lattice_vectors()))
 
     @property
     def Gv(self):
@@ -1507,7 +1498,7 @@ class Cell(mole.Mole):
     def nimgs(self, x):
         b = self.reciprocal_vectors(norm_to=1)
         heights_inv = lib.norm(b, axis=1)
-        self.rcut = max(np.asarray(x) / heights_inv)
+        self.rcut = max(numpy.asarray(x) / heights_inv)
 
         if self.nbas == 0:
             rcut_guess = _estimate_rcut(.05, 0, 1, 1e-8)
@@ -1528,7 +1519,7 @@ class Cell(mole.Mole):
                 raise RuntimeError('Pseudo potential for atoms %s are defined '
                                    'in both .ecp and .pseudo.' % list(conflicts))
 
-        _ecpbas, _env = np.zeros((0,8)), pre_env
+        _ecpbas, _env = numpy.zeros((0,8)), pre_env
         if _ecp:
             _atm, _ecpbas, _env = mole.make_ecp_env(self, _atm, _ecp, _env)
         if self._pseudo:
@@ -1543,9 +1534,9 @@ class Cell(mole.Mole):
         '''
         if isinstance(self.a, (str, unicode)):
             a = self.a.replace(';',' ').replace(',',' ').replace('\n',' ')
-            a = np.asarray([float(x) for x in a.split()]).reshape(3,3)
+            a = numpy.asarray([float(x) for x in a.split()]).reshape(3,3)
         else:
-            a = np.asarray(self.a, dtype=np.double)
+            a = numpy.asarray(self.a, dtype=numpy.double)
         if isinstance(self.unit, (str, unicode)):
             if self.unit.startswith(('B','b','au','AU')):
                 return a
@@ -1554,7 +1545,7 @@ class Cell(mole.Mole):
         else:
             return a/self.unit
 
-    def reciprocal_vectors(self, norm_to=2*np.pi):
+    def reciprocal_vectors(self, norm_to=2*numpy.pi):
         r'''
         .. math::
 
@@ -1567,13 +1558,13 @@ class Cell(mole.Mole):
         '''  # noqa: E501
         a = self.lattice_vectors()
         if self.dimension == 1:
-            assert(abs(np.dot(a[0], a[1])) < 1e-9 and
-                   abs(np.dot(a[0], a[2])) < 1e-9 and
-                   abs(np.dot(a[1], a[2])) < 1e-9)
+            assert(abs(numpy.dot(a[0], a[1])) < 1e-9 and
+                   abs(numpy.dot(a[0], a[2])) < 1e-9 and
+                   abs(numpy.dot(a[1], a[2])) < 1e-9)
         elif self.dimension == 2:
-            assert(abs(np.dot(a[0], a[2])) < 1e-9 and
-                   abs(np.dot(a[1], a[2])) < 1e-9)
-        b = np.linalg.inv(a.T)
+            assert(abs(numpy.dot(a[0], a[2])) < 1e-9 and
+                   abs(numpy.dot(a[1], a[2])) < 1e-9)
+        b = numpy.linalg.inv(a.T)
         return norm_to * b
 
     def get_abs_kpts(self, scaled_kpts):
@@ -1586,7 +1577,7 @@ class Cell(mole.Mole):
         Returns:
             abs_kpts : (nkpts, 3) ndarray of floats
         '''
-        return np.dot(scaled_kpts, self.reciprocal_vectors())
+        return numpy.dot(scaled_kpts, self.reciprocal_vectors())
 
     def get_scaled_kpts(self, abs_kpts):
         '''Get scaled k-points, given absolute k-points in 1/Bohr.
@@ -1597,7 +1588,7 @@ class Cell(mole.Mole):
         Returns:
             scaled_kpts : (nkpts, 3) ndarray of floats
         '''
-        return 1./(2*np.pi)*np.dot(abs_kpts, self.lattice_vectors().T)
+        return 1./(2*numpy.pi)*numpy.dot(abs_kpts, self.lattice_vectors().T)
 
     make_kpts = get_kpts = make_kpts
 

@@ -1,6 +1,8 @@
 from pyscf import __config__
+NUMPY_BACKEND = getattr(__config__, "pyscf_numpy_backend", "pyscf")
 PYSCFAD = getattr(__config__, "pyscfad", False)
-if PYSCFAD:
+NEEDOPS = PYSCFAD or NUMPY_BACKEND.upper() in ("JAX", "PYSCFAD")
+if NEEDOPS:
     from pyscfad.lib import ops
 
 class _Indexable(object):
@@ -15,21 +17,21 @@ class _Indexable(object):
 index = _Indexable()
 
 def index_update(a, idx, value):
-    if PYSCFAD:
+    if NEEDOPS:
         a = ops.index_update(a, idx, value)
     else:
         a[idx] = value
     return a
 
 def index_add(a, idx, value):
-    if PYSCFAD:
+    if NEEDOPS:
         a = ops.index_add(a, idx, value)
     else:
         a[idx] += value
     return a
 
 def index_mul(a, idx, value):
-    if PYSCFAD:
+    if NEEDOPS:
         a = ops.index_mul(a, idx, value)
     else:
         a[idx] *= value
