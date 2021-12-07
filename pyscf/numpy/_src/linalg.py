@@ -6,9 +6,9 @@ from pyscf import __config__
 BACKEND = getattr(__config__, "pyscf_numpy_backend", "pyscf")
 
 if BACKEND.upper() == "PYSCF":
-    from pyscf.lib.numpy._pyscf_linalg import *
-elif BACKEND.upper() == "JAX":
-    from pyscf.lib.numpy._jax_linalg import *
+    from ._pyscf_linalg import *
+elif BACKEND.upper() in ("JAX", "PYSCFAD"):
+    from ._jax_linalg import *
 elif BACKEND.upper() == "CUPY":
     raise NotImplementedError
 else:

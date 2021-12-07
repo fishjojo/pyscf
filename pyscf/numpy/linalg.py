@@ -2,7 +2,7 @@
 PySCF Numpy linalg APIs
 '''
 
-from pyscf.lib.numpy.linalg import *
+from ._src.linalg import *
 
 # add default numpy functions
 import numpy.linalg as lin

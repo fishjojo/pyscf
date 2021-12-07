@@ -2,8 +2,8 @@
 PySCF Numpy APIs
 '''
 
-from pyscf.lib.numpy import *
-from pyscf.numpy import linalg
+from ._src.numpy import *
+from . import linalg
 
 # add default numpy functions
 import numpy as np

@@ -32,7 +32,6 @@ from pyscf import lib
 from pyscf import numpy as np
 from pyscf import scipy as scipy
 from pyscf.lib import logger
-from pyscf.lib import linalg_helper_ad as linalg_helper
 from pyscf.scf import diis
 from pyscf.scf import _vhf
 from pyscf.scf import chkfile

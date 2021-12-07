@@ -27,6 +27,7 @@ import scipy.optimize
 from pyscf import lib
 from pyscf import numpy as np
 from pyscf.lib import logger
+from pyscf.lib import diis
 from pyscf.lib import stop_grad
 from pyscf import __config__
 
@@ -40,16 +41,16 @@ DEBUG = False
 
 # error vector = SDF-FDS
 # error vector = F_ai ~ (S-SDS)*S^{-1}FDS = FDS - SDFDS ~ FDS-SDF in converge
-class CDIIS(lib.diis.DIIS):
+class CDIIS(diis.DIIS):
     def __init__(self, mf=None, filename=None):
-        lib.diis.DIIS.__init__(self, mf, filename)
+        diis.DIIS.__init__(self, mf, filename)
         self.rollback = False
         self.space = 8
 
     def update(self, s, d, f, *args, **kwargs):
         errvec = get_err_vec(s, d, f)
         logger.debug1(self, 'diis-norm(errvec)=%g', numpy.linalg.norm(stop_grad(errvec)))
-        xnew = lib.diis.DIIS.update(self, f, xerr=errvec)
+        xnew = diis.DIIS.update(self, f, xerr=errvec)
         if self.rollback > 0 and len(self._bookkeep) == self.space:
             self._bookkeep = self._bookkeep[-self.rollback:]
         return xnew
@@ -88,7 +89,7 @@ def get_err_vec(s, d, f):
     return errvec
 
 
-class EDIIS(lib.diis.DIIS):
+class EDIIS(diis.DIIS):
     '''SCF-EDIIS
     Ref: JCP 116, 8255 (2002); DOI:10.1063/1.1470195
     '''
@@ -148,7 +149,7 @@ def ediis_minimize(es, ds, fs):
     return res.fun, (res.x**2)/(res.x**2).sum()
 
 
-class ADIIS(lib.diis.DIIS):
+class ADIIS(diis.DIIS):
     '''
     Ref: JCP 132, 054109 (2010); DOI:10.1063/1.3304922
     '''

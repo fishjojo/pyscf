@@ -111,10 +111,10 @@ elif '1.16.2' <= LooseVersion(numpy.__version__) < '1.18':
 del numpy
 
 from pyscf import __config__
-from pyscf import lib
-from pyscf import gto
-from pyscf import scf
-from pyscf import ao2mo
+#from pyscf import lib
+#from pyscf import gto
+#from pyscf import scf
+#from pyscf import ao2mo
 
 # Whether to enable debug mode. When this flag is set, some modules may run
 # extra debug code.
@@ -123,6 +123,7 @@ DEBUG = __config__.DEBUG
 def M(**kwargs):
     '''Main driver to create Molecule object (mol) or Material crystal object (cell)'''
     from pyscf import __all__
+    from pyscf import gto
     if kwargs.get('a') is not None:  # a is crystal lattice parameter
         return __all__.pbc.gto.M(**kwargs)
     else:  # Molecule

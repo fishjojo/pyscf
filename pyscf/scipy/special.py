@@ -1,7 +1,7 @@
 '''
 PySCF Scipy special APIs
 '''
-from pyscf.lib.scipy.special import *
+from ._src.special import *
 
 # add default scipy functions
 import scipy.special as spe
