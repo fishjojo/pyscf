@@ -1973,10 +1973,10 @@ class RHF(SCF):
             vj, vk = self.get_jk(mol, dm, hermi)
             vhf = vj - vk * .5
         else:
-            ddm = numpy.asarray(dm) - numpy.asarray(dm_last)
+            ddm = np.asarray(dm) - np.asarray(dm_last)
             vj, vk = self.get_jk(mol, ddm, hermi)
             vhf = vj - vk * .5
-            vhf += numpy.asarray(vhf_last)
+            vhf += np.asarray(vhf_last)
         return vhf
 
     def convert_from_(self, mf):
