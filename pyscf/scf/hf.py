@@ -37,7 +37,7 @@ from pyscf.scf import _vhf
 from pyscf.scf import chkfile
 from pyscf.data import nist
 from pyscf import __config__
-from pyscf.lib import stop_grad
+from pyscf.lib import stop_grad, ops
 
 WITH_META_LOWDIN = getattr(__config__, 'scf_analyze_with_meta_lowdin', True)
 PRE_ORTH_METHOD = getattr(__config__, 'scf_analyze_pre_orth_method', 'ANO')
@@ -1128,11 +1128,11 @@ def eig(h, s):
     '''
     e, c = scipy.linalg.eigh(h, s)
 
-    numpy_backend = getattr(__config__, "pyscf_numpy_backend", "pyscf")
-    if numpy_backend.upper() not in ("JAX", "PYSCFAD"):
-        # inplace update is slow for jax arrays
-        idx = numpy.argmax(abs(c.real), axis=0)
-        c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
+    # It's important to fix the phases of MOs,
+    # otherwise, the autodiff derivatives can be wrong
+    idx = np.argmax(abs(c.real), axis=0)
+    index = ops.index[:,c[idx,np.arange(len(e))].real<0]
+    c = ops.index_mul(c, index, -1)
     return e, c
 
 def canonicalize(mf, mo_coeff, mo_occ, fock=None):

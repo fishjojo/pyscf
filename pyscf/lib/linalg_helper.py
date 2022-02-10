@@ -25,10 +25,13 @@ import inspect
 import warnings
 from functools import reduce
 import numpy
+from pyscf import numpy as np
 import scipy.linalg
+from pyscf import scipy as pyscf_scipy
 from pyscf.lib import logger
 from pyscf.lib import numpy_helper
 from pyscf.lib import misc
+from pyscf.lib import ops
 from pyscf import __config__
 
 SAFE_EIGH_LINDEP = getattr(__config__, 'lib_linalg_helper_safe_eigh_lindep', 1e-15)
@@ -170,15 +173,20 @@ def _fill_heff_hermitian(heff, xs, ax, xt, axt, dot):
     row0 = row1 - nrow
     for ip, i in enumerate(range(row0, row1)):
         for jp, j in enumerate(range(row0, i)):
-            heff[i,j] = dot(xt[ip].conj(), axt[jp])
-            heff[j,i] = heff[i,j].conj()
-        heff[i,i] = dot(xt[ip].conj(), axt[ip]).real
+            #heff[i,j] = dot(xt[ip].conj(), axt[jp])
+            #heff[j,i] = heff[i,j].conj()
+            heff = ops.index_update(heff, ops.index[i,j], dot(xt[ip].conj(), axt[jp]))
+            heff = ops.index_update(heff, ops.index[j,i], heff[i,j].conj())
+        #heff[i,i] = dot(xt[ip].conj(), axt[ip]).real
+        heff = ops.index_update(heff, ops.index[i,i], dot(xt[ip].conj(), axt[ip]).real)
 
     for i in range(row0):
-        axi = numpy.asarray(ax[i])
+        axi = np.asarray(ax[i])
         for jp, j in enumerate(range(row0, row1)):
-            heff[j,i] = dot(xt[jp].conj(), axi)
-            heff[i,j] = heff[j,i].conj()
+            #heff[j,i] = dot(xt[jp].conj(), axi)
+            #heff[i,j] = heff[j,i].conj()
+            heff = ops.index_update(heff, ops.index[j,i], dot(xt[jp].conj(), axi))
+            heff = ops.index_update(heff, ops.index[i,j], heff[j,i].conj())
         axi = None
     return heff
 
@@ -291,7 +299,7 @@ def davidson(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
 
 def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
               lindep=DAVIDSON_LINDEP, max_memory=MAX_MEMORY,
-              dot=numpy.dot, callback=None,
+              dot=np.dot, callback=None,
               nroots=1, lessio=False, pick=None, verbose=logger.WARN,
               follow_state=FOLLOW_STATE, tol_residual=None,
               fill_heff=_fill_heff_hermitian):
@@ -446,17 +454,17 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
             except IndexError:
                 dtype = numpy.result_type(ax[0].dtype, xs[0].dtype)
         if heff is None:  # Lazy initilize heff to determine the dtype
-            heff = numpy.empty((max_space+nroots,max_space+nroots), dtype=dtype)
+            heff = np.empty((max_space+nroots,max_space+nroots), dtype=dtype)
         else:
-            heff = numpy.asarray(heff, dtype=dtype)
+            heff = np.asarray(heff, dtype=dtype)
 
         elast = e
         vlast = v
         conv_last = conv
 
-        fill_heff(heff, xs, ax, xt, axt, dot)
+        heff = fill_heff(heff, xs, ax, xt, axt, dot)
         xt = axt = None
-        w, v = scipy.linalg.eigh(heff[:space,:space])
+        w, v = pyscf_scipy.linalg.eigh(heff[:space,:space])
         if callable(pick):
             w, v, idx = pick(w, v, nroots, locals())
         if SORT_EIG_BY_SIMILARITY:
@@ -490,20 +498,20 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
         else:
             elast, conv_last = _sort_elast(elast, conv_last, vlast, v,
                                            fresh_start, log)
-            de = e - elast
+            de = e - np.asarray(elast)
             dx_norm = []
             xt = []
             conv = [False] * nroots
             for k, ek in enumerate(e):
                 xt.append(ax0[k] - ek * x0[k])
-                dx_norm.append(numpy.sqrt(dot(xt[k].conj(), xt[k]).real))
+                dx_norm.append(np.sqrt(dot(xt[k].conj(), xt[k]).real))
                 conv[k] = abs(de[k]) < tol and dx_norm[k] < toloose
                 if conv[k] and not conv_last[k]:
                     log.debug('root %d converged  |r|= %4.3g  e= %s  max|de|= %4.3g',
                               k, dx_norm[k], ek, de[k])
         ax0 = None
         max_dx_norm = max(dx_norm)
-        ide = numpy.argmax(abs(de))
+        ide = np.argmax(abs(de))
         if all(conv):
             log.debug('converged %d %d  |r|= %4.3g  e= %s  max|de|= %4.3g',
                       icyc, space, max_dx_norm, e, de[ide])
@@ -526,29 +534,31 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
             for k, ek in enumerate(e):
                 if (not conv[k]) and dx_norm[k]**2 > lindep:
                     xt[k] = precond(xt[k], e[0], x0[k])
-                    xt[k] *= 1/numpy.sqrt(dot(xt[k].conj(), xt[k]).real)
+                    xt[k] *= 1/np.sqrt(dot(xt[k].conj(), xt[k]).real)
                 else:
                     xt[k] = None
         else:
             for k, ek in enumerate(e):
                 if dx_norm[k]**2 > lindep:
                     xt[k] = precond(xt[k], e[0], x0[k])
-                    xt[k] *= 1/numpy.sqrt(dot(xt[k].conj(), xt[k]).real)
+                    xt[k] *= 1/np.sqrt(dot(xt[k].conj(), xt[k]).real)
                 else:
                     xt[k] = None
                     log.debug1('Throwing out eigenvector %d with norm=%4.3g', k, dx_norm[k])
         xt = [xi for xi in xt if xi is not None]
 
         for i in range(space):
-            xsi = numpy.asarray(xs[i])
-            for xi in xt:
-                xi -= xsi * dot(xsi.conj(), xi)
+            xsi = np.asarray(xs[i])
+            #for xi in xt:
+            #    xi -= xsi * dot(xsi.conj(), xi)
+            for k, xi in enumerate(xt):
+                xt[k] = xi - xsi * dot(xsi.conj(), xi)
             xsi = None
         norm_min = 1
         for i,xi in enumerate(xt):
-            norm = numpy.sqrt(dot(xi.conj(), xi).real)
+            norm = np.sqrt(dot(xi.conj(), xi).real)
             if norm**2 > lindep:
-                xt[i] *= 1/norm
+                xt = ops.index_mul(xt, ops.index[i], 1/norm)
                 norm_min = min(norm_min, norm)
             else:
                 xt[i] = None
@@ -1495,33 +1505,41 @@ def _qr(xs, dot, lindep=1e-14):
     '''
     nvec = len(xs)
     dtype = xs[0].dtype
-    qs = numpy.empty((nvec,xs[0].size), dtype=dtype)
-    rmat = numpy.empty((nvec,nvec), order='F', dtype=dtype)
+    qs = np.empty((nvec,xs[0].size), dtype=dtype)
+    #rmat = np.empty((nvec,nvec), order='F', dtype=dtype)
+    rmat = np.empty((nvec,nvec), dtype=dtype)
 
     nv = 0
     for i in range(nvec):
-        xi = numpy.array(xs[i], copy=True)
-        rmat[:,nv] = 0
-        rmat[nv,nv] = 1
+        xi = np.array(xs[i], copy=True)
+        #rmat[:,nv] = 0
+        #rmat[nv,nv] = 1
+        rmat = ops.index_update(rmat, ops.index[:,nv], 0)
+        rmat = ops.index_update(rmat, ops.index[nv,nv], 1)
         for j in range(nv):
             prod = dot(qs[j].conj(), xi)
-            xi -= qs[j] * prod
-            rmat[:,nv] -= rmat[:,j] * prod
+            #xi -= qs[j] * prod
+            xi = xi - qs[j] * prod
+            #rmat[:,nv] -= rmat[:,j] * prod
+            rmat = ops.index_add(rmat, ops.index[:,nv], -rmat[:,j] * prod)
         innerprod = dot(xi.conj(), xi).real
-        norm = numpy.sqrt(innerprod)
+        norm = np.sqrt(innerprod)
         if innerprod > lindep:
-            qs[nv] = xi/norm
-            rmat[:nv+1,nv] /= norm
+            #qs[nv] = xi/norm
+            qs = ops.index_update(qs, ops.index[nv], xi/norm)
+            #rmat[:nv+1,nv] /= norm
+            rmat = ops.index_mul(rmat, ops.index[:nv+1,nv], 1./norm)
             nv += 1
-    return qs[:nv], numpy.linalg.inv(rmat[:nv,:nv])
+    return qs[:nv], np.linalg.inv(rmat[:nv,:nv])
 
 def _gen_x0(v, xs):
     space, nroots = v.shape
-    x0 = numpy.einsum('c,x->cx', v[space-1], numpy.asarray(xs[space-1]))
+    x0 = np.einsum('c,x->cx', v[space-1], np.asarray(xs[space-1]))
     for i in reversed(range(space-1)):
-        xsi = numpy.asarray(xs[i])
+        xsi = np.asarray(xs[i])
         for k in range(nroots):
-            x0[k] += v[i,k] * xsi
+            #x0[k] += v[i,k] * xsi
+            x0 = ops.index_add(x0, ops.index[k], v[i,k] * xsi)
     return x0
 
 def _sort_by_similarity(w, v, nroots, conv, vlast, emin=None, heff=None):
@@ -1552,8 +1570,8 @@ def _sort_elast(elast, conv_last, vlast, v, fresh_start, log):
     if fresh_start:
         return elast, conv_last
     head, nroots = vlast.shape
-    ovlp = abs(numpy.dot(v[:head].conj().T, vlast))
-    idx = numpy.argmax(ovlp, axis=1)
+    ovlp = abs(np.dot(v[:head].conj().T, vlast))
+    idx = np.argmax(ovlp, axis=1)
 
     if log.verbose >= logger.DEBUG:
         ordering_diff = (idx != numpy.arange(len(idx)))

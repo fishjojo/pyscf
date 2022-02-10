@@ -24,11 +24,13 @@
 
 from functools import reduce
 import numpy
+from pyscf import numpy as np
 from pyscf import lib
 from pyscf import gto
 from pyscf import ao2mo
 from pyscf import symm
 from pyscf.lib import logger
+from pyscf.lib import ops
 from pyscf.scf import hf_symm
 from pyscf.scf import _response_functions  # noqa
 from pyscf.data import nist
@@ -73,10 +75,10 @@ def gen_tda_operation(mf, fock_ao=None, singlet=True, wfnsym=None):
     if fock_ao is None:
         #dm0 = mf.make_rdm1(mo_coeff, mo_occ)
         #fock_ao = mf.get_hcore() + mf.get_veff(mol, dm0)
-        foo = numpy.diag(mo_energy[occidx])
-        fvv = numpy.diag(mo_energy[viridx])
+        foo = np.diag(mo_energy[occidx])
+        fvv = np.diag(mo_energy[viridx])
     else:
-        fock = reduce(numpy.dot, (mo_coeff.conj().T, fock_ao, mo_coeff))
+        fock = reduce(np.dot, (mo_coeff.conj().T, fock_ao, mo_coeff))
         foo = fock[occidx[:,None],occidx]
         fvv = fock[viridx[:,None],viridx]
 
@@ -85,21 +87,21 @@ def gen_tda_operation(mf, fock_ao=None, singlet=True, wfnsym=None):
         hdiag[sym_forbid] = 0
     hdiag = hdiag.ravel()
 
-    mo_coeff = numpy.asarray(numpy.hstack((orbo,orbv)), order='F')
+    #mo_coeff = np.asarray(np.hstack((orbo,orbv)), order='F')
     vresp = mf.gen_response(singlet=singlet, hermi=0)
 
     def vind(zs):
-        zs = numpy.asarray(zs).reshape(-1,nocc,nvir)
+        zs = np.asarray(zs).reshape(-1,nocc,nvir)
         if wfnsym is not None and mol.symmetry:
             zs = numpy.copy(zs)
             zs[:,sym_forbid] = 0
 
         # *2 for double occupancy
-        dmov = lib.einsum('xov,po,qv->xpq', zs*2, orbo, orbv.conj())
+        dmov = np.einsum('xov,po,qv->xpq', zs*2, orbo, orbv.conj())
         v1ao = vresp(dmov)
-        v1ov = lib.einsum('xpq,po,qv->xov', v1ao, orbo.conj(), orbv)
-        v1ov += lib.einsum('xqs,sp->xqp', zs, fvv)
-        v1ov -= lib.einsum('xpr,sp->xsr', zs, foo)
+        v1ov = np.einsum('xpq,po,qv->xov', v1ao, orbo.conj(), orbv)
+        v1ov += np.einsum('xqs,sp->xqp', zs, fvv)
+        v1ov -= np.einsum('xpr,sp->xsr', zs, foo)
         if wfnsym is not None and mol.symmetry:
             v1ov[:,sym_forbid] = 0
         return v1ov.reshape(v1ov.shape[0],-1)
@@ -715,7 +717,7 @@ class TDMixin(lib.StreamObject):
     def get_precond(self, hdiag):
         def precond(x, e, x0):
             diagd = hdiag - (e-self.level_shift)
-            diagd[abs(diagd)<1e-8] = 1e-8
+            diagd = ops.index_update(diagd, ops.index[abs(diagd)<1e-8], 1e-8)
             return x/diagd
         return precond
 
@@ -825,7 +827,13 @@ class TDA(TDMixin):
 
         def pickeig(w, v, nroots, envs):
             idx = numpy.where(w > POSTIVE_EIG_THRESHOLD**2)[0]
-            return w[idx], v[:,idx], idx
+            if len(idx) == 1:
+                w_sub = np.asarray([w[idx],])
+                v_sub = v[:,idx].reshape((-1,1))
+            else:
+                w_sub = w[idx]
+                v_sub = v[:,idx]
+            return w_sub, v_sub, idx
 
         self.converged, self.e, x1 = \
                 lib.davidson1(vind, x0, precond,
