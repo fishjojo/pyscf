@@ -50,7 +50,7 @@ class CDIIS(diis.DIIS):
     def update(self, s, d, f, *args, **kwargs):
         errvec = get_err_vec(s, d, f)
         logger.debug1(self, 'diis-norm(errvec)=%g', numpy.linalg.norm(stop_grad(errvec)))
-        xnew = diis.DIIS.update(self, f, xerr=errvec)
+        xnew = diis.DIIS.update(self, f, xerr=stop_grad(errvec))
         if self.rollback > 0 and len(self._bookkeep) == self.space:
             self._bookkeep = self._bookkeep[-self.rollback:]
         return xnew

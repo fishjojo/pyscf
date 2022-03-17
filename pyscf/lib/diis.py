@@ -22,13 +22,11 @@ DIIS
 
 import sys
 import numpy
+import scipy.linalg
 from pyscf import numpy as np
-from pyscf.scipy.linalg import eigh
 from pyscf.lib import logger
 from pyscf.lib import misc
 from pyscf.lib import numpy_helper
-from pyscf.lib import stop_grad
-from pyscf.lib.ops import index, index_update, index_add
 from pyscf import __config__
 
 INCORE_SIZE = getattr(__config__, 'lib_diis_incore_size', 10000000)  # 80 MB
@@ -220,21 +218,17 @@ class DIIS(object):
         if nd < self.min_space:
             return x
 
-        dt = np.array(self.get_err_vec(self._head-1), copy=False)
+        dt = numpy.array(self.get_err_vec(self._head-1), copy=False)
         if self._H is None:
-            self._H = np.zeros((self.space+1,self.space+1), dt.dtype)
-            #self._H[0,1:] = self._H[1:,0] = 1
-            self._H = index_update(self._H, index[1:,0], 1)
-            self._H = index_update(self._H, index[0,1:], 1)
+            self._H = numpy.zeros((self.space+1,self.space+1), dt.dtype)
+            self._H[0,1:] = self._H[1:,0] = 1
         for i in range(nd):
             tmp = 0
             dti = self.get_err_vec(i)
             for p0, p1 in misc.prange(0, dt.size, BLOCK_SIZE):
-                tmp += np.dot(dt[p0:p1].conj(), dti[p0:p1])
-            #self._H[self._head,i+1] = tmp
-            #self._H[i+1,self._head] = tmp.conjugate()
-            self._H = index_update(self._H, index[self._head,i+1], tmp)
-            self._H = index_update(self._H, index[i+1,self._head], tmp.conjugate())
+                tmp += numpy.dot(dt[p0:p1].conj(), dti[p0:p1])
+            self._H[self._head,i+1] = tmp
+            self._H[i+1,self._head] = tmp.conjugate()
         dt = None
 
         if self._xprev is None:
@@ -258,18 +252,18 @@ class DIIS(object):
         g = numpy.zeros(nd+1, h.dtype)
         g[0] = 1
 
-        w, v = eigh(h)
-        if np.any(abs(w)<1e-14):
+        w, v = scipy.linalg.eigh(h)
+        if numpy.any(abs(w)<1e-14):
             logger.debug(self, 'Linear dependence found in DIIS error vectors.')
             idx = abs(w)>1e-14
-            c = np.dot(v[:,idx]*(1./w[idx]), np.dot(v[:,idx].T.conj(), g))
+            c = numpy.dot(v[:,idx]*(1./w[idx]), numpy.dot(v[:,idx].T.conj(), g))
         else:
             try:
-                c = np.linalg.solve(h, g)
-            except np.linalg.linalg.LinAlgError as e:
+                c = numpy.linalg.solve(h, g)
+            except numpy.linalg.linalg.LinAlgError as e:
                 logger.warn(self, ' diis singular, eigh(h) %s', w)
                 raise e
-        logger.debug1(self, 'diis-c %s', stop_grad(c))
+        logger.debug1(self, 'diis-c %s', c)
 
         xnew = None
         for i, ci in enumerate(c[1:]):
@@ -277,8 +271,7 @@ class DIIS(object):
             if xnew is None:
                 xnew = numpy.zeros(xi.size, c.dtype)
             for p0, p1 in misc.prange(0, xi.size, BLOCK_SIZE):
-                #xnew[p0:p1] += xi[p0:p1] * ci
-                xnew = index_add(xnew, index[p0:p1], xi[p0:p1] * ci)
+                xnew[p0:p1] += xi[p0:p1] * ci
         return xnew
 
     def restore(self, filename, inplace=True):
