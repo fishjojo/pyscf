@@ -170,6 +170,8 @@ def stdout(rec, msg, *args):
 def timer(rec, msg, cpu0=None, wall0=None):
     if cpu0 is None:
         cpu0 = rec._t0
+    if wall0 is None:
+        wall0 = rec._w0
     if wall0:
         rec._t0, rec._w0 = process_clock(), perf_counter()
         if rec.verbose >= TIMER_LEVEL:

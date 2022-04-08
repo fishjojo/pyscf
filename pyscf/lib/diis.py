@@ -27,6 +27,7 @@ from pyscf import numpy as np
 from pyscf.lib import logger
 from pyscf.lib import misc
 from pyscf.lib import numpy_helper
+from pyscf.lib import stop_grad
 from pyscf import __config__
 
 INCORE_SIZE = getattr(__config__, 'lib_diis_incore_size', 10000000)  # 80 MB
@@ -175,7 +176,7 @@ class DIIS(object):
             xkey = 'x%d'%self._head
             self._store(xkey, x)
             if x.size < INCORE_SIZE or self.incore:
-                self._store(ekey, x - np.asarray(self._xprev))
+                self._store(ekey, stop_grad(x - np.asarray(self._xprev)))
             else:  # not call _store to reduce memory footprint
                 if ekey not in self._diisfile:
                     self._diisfile.create_dataset(ekey, (x.size,), x.dtype)
