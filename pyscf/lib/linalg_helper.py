@@ -498,7 +498,7 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
         else:
             elast, conv_last = _sort_elast(elast, conv_last, vlast, v,
                                            fresh_start, log)
-            de = e - np.asarray(elast)
+            de = e - elast
             dx_norm = []
             xt = []
             conv = [False] * nroots
@@ -558,7 +558,7 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
         for i,xi in enumerate(xt):
             norm = np.sqrt(dot(xi.conj(), xi).real)
             if norm**2 > lindep:
-                xt = ops.index_mul(xt, ops.index[i], 1/norm)
+                xt[i] *= 1/norm
                 norm_min = min(norm_min, norm)
             else:
                 xt[i] = None
@@ -1518,8 +1518,7 @@ def _qr(xs, dot, lindep=1e-14):
         rmat = ops.index_update(rmat, ops.index[nv,nv], 1)
         for j in range(nv):
             prod = dot(qs[j].conj(), xi)
-            #xi -= qs[j] * prod
-            xi = xi - qs[j] * prod
+            xi -= qs[j] * prod
             #rmat[:,nv] -= rmat[:,j] * prod
             rmat = ops.index_add(rmat, ops.index[:,nv], -rmat[:,j] * prod)
         innerprod = dot(xi.conj(), xi).real
