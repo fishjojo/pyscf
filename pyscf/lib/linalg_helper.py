@@ -1579,7 +1579,7 @@ def _sort_elast(elast, conv_last, vlast, v, fresh_start, log):
             for i in numpy.where(ordering_diff)[0]:
                 log.debug('  %3d     ->   %3d ', idx[i], i)
 
-    return [elast[i] for i in idx], [conv_last[i] for i in idx]
+    return np.asarray([elast[i] for i in idx]), [conv_last[i] for i in idx]
 
 
 class _Xlist(list):

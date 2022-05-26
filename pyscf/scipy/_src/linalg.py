@@ -3,7 +3,7 @@ Scipy linalg APIs
 '''
 from pyscf import __config__
 
-BACKEND = getattr(__config__, "pyscf_scipy_backend", "pyscf")
+BACKEND = getattr(__config__, "pyscf_scipy_linalg_backend", "pyscf")
 
 if BACKEND.upper() == "PYSCF":
     from ._pyscf_linalg import *
