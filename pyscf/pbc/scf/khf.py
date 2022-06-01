@@ -172,7 +172,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if abs(level_shift_factor) > 1e-4:
         f_kpts = [mol_hf.level_shift(s, dm_kpts[k], f_kpts[k], level_shift_factor)
                   for k, s in enumerate(s_kpts)]
-    return lib.asarray(f_kpts)
+    return np.asarray(f_kpts)
 
 def get_fermi(mf, mo_energy_kpts=None, mo_occ_kpts=None):
     '''Fermi level
