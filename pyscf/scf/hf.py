@@ -299,7 +299,7 @@ def energy_tot(mf, dm=None, h1e=None, vhf=None):
     '''
     nuc = mf.energy_nuc()
     e_tot = mf.energy_elec(dm, h1e, vhf)[0] + nuc
-    mf.scf_summary['nuc'] = nuc.real
+    mf.scf_summary['nuc'] = stop_grad(nuc).real
     return e_tot
 
 

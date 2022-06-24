@@ -329,8 +329,8 @@ def energy_elec(mf, dm=None, h1e=None, vhf=None):
     e_coul =(np.einsum('ij,ji->', vhf[0], dm[0]) +
              np.einsum('ij,ji->', vhf[1], dm[1])) * .5
     e_elec = (e1 + e_coul).real
-    mf.scf_summary['e1'] = e1.real
-    mf.scf_summary['e2'] = e_coul.real
+    mf.scf_summary['e1'] = stop_grad(e1).real
+    mf.scf_summary['e2'] = stop_grad(e_coul).real
     logger.debug(mf, 'E1 = %s  Ecoul = %s', e1, e_coul.real)
     return e_elec, e_coul
 
