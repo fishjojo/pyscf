@@ -555,10 +555,12 @@ class MP2(lib.StreamObject):
         if self._scf.converged:
             self.e_corr, self.t2 = self.init_amps(mo_energy, mo_coeff, eris, with_t2)
         else:
-            self.converged, self.e_corr, self.t2 = _iterative_kernel(self, eris)
+            self.converged, self.e_corr, self.t2 = self._iterative_kernel(eris)
 
         self._finalize()
         return self.e_corr, self.t2
+
+    _iterative_kernel = _iterative_kernel
 
     def _finalize(self):
         '''Hook for dumping results and clearing up the object.'''
