@@ -16,13 +16,14 @@
 # Author: Qiming Sun <osirpt.sun@gmail.com>
 #
 
-import numpy
+from pyscf import numpy as np
 from pyscf import lib
 from pyscf import ao2mo
+from pyscf.lib import ops
 from pyscf.fci import cistring
 
 def contract_1e(f1e, fcivec, norb, nelec):
-    if isinstance(nelec, (int, numpy.integer)):
+    if isinstance(nelec, (int, np.integer)):
         nelecb = nelec//2
         neleca = nelec - nelecb
     else:
@@ -32,20 +33,20 @@ def contract_1e(f1e, fcivec, norb, nelec):
     na = cistring.num_strings(norb, neleca)
     nb = cistring.num_strings(norb, nelecb)
     ci0 = fcivec.reshape(na,nb)
-    t1 = numpy.zeros((norb,norb,na,nb))
+    t1 = np.zeros((norb,norb,na,nb))
     for str0, tab in enumerate(link_indexa):
         for a, i, str1, sign in tab:
             t1[a,i,str1] += sign * ci0[str0]
     for str0, tab in enumerate(link_indexb):
         for a, i, str1, sign in tab:
             t1[a,i,:,str1] += sign * ci0[:,str0]
-    fcinew = numpy.dot(f1e.reshape(-1), t1.reshape(-1,na*nb))
+    fcinew = np.dot(f1e.reshape(-1), t1.reshape(-1,na*nb))
     return fcinew.reshape(fcivec.shape)
 
 
 def contract_2e(eri, fcivec, norb, nelec, opt=None):
     '''Compute E_{pq}E_{rs}|CI>'''
-    if isinstance(nelec, (int, numpy.integer)):
+    if isinstance(nelec, (int, np.integer)):
         nelecb = nelec//2
         neleca = nelec - nelecb
     else:
@@ -55,27 +56,27 @@ def contract_2e(eri, fcivec, norb, nelec, opt=None):
     na = cistring.num_strings(norb, neleca)
     nb = cistring.num_strings(norb, nelecb)
     ci0 = fcivec.reshape(na,nb)
-    t1 = numpy.zeros((norb,norb,na,nb))
+    t1 = np.zeros((norb,norb,na,nb))
     for str0, tab in enumerate(link_indexa):
         for a, i, str1, sign in tab:
-            t1[a,i,str1] += sign * ci0[str0]
+            t1 = ops.index_add(t1, ops.index[a,i,str1], sign * ci0[str0])
     for str0, tab in enumerate(link_indexb):
         for a, i, str1, sign in tab:
-            t1[a,i,:,str1] += sign * ci0[:,str0]
+            t1 = ops.index_add(t1, ops.index[a,i,:,str1], sign * ci0[:,str0])
 
-    t1 = lib.einsum('bjai,aiAB->bjAB', eri.reshape([norb]*4), t1)
+    t1 = np.einsum('bjai,aiAB->bjAB', eri.reshape([norb]*4), t1)
 
-    fcinew = numpy.zeros_like(ci0)
+    fcinew = np.zeros_like(ci0)
     for str0, tab in enumerate(link_indexa):
         for a, i, str1, sign in tab:
-            fcinew[str1] += sign * t1[a,i,str0]
+            fcinew = ops.index_add(fcinew, ops.index[str1], sign * t1[a,i,str0])
     for str0, tab in enumerate(link_indexb):
         for a, i, str1, sign in tab:
-            fcinew[:,str1] += sign * t1[a,i,:,str0]
+            fcinew = ops.index_add(fcinew, ops.index[:,str1], sign * t1[a,i,:,str0])
     return fcinew.reshape(fcivec.shape)
 
 def contract_2e_hubbard(u, fcivec, norb, nelec, opt=None):
-    if isinstance(nelec, (int, numpy.number)):
+    if isinstance(nelec, (int, np.number)):
         nelecb = nelec//2
         neleca = nelec - nelecb
     else:
@@ -87,9 +88,9 @@ def contract_2e_hubbard(u, fcivec, norb, nelec, opt=None):
     na = cistring.num_strings(norb, neleca)
     nb = cistring.num_strings(norb, nelecb)
     fcivec = fcivec.reshape(na,nb)
-    t1a = numpy.zeros((norb,na,nb))
-    t1b = numpy.zeros((norb,na,nb))
-    fcinew = numpy.zeros_like(fcivec)
+    t1a = np.zeros((norb,na,nb))
+    t1b = np.zeros((norb,na,nb))
+    fcinew = np.zeros_like(fcivec)
 
     for addr, s in enumerate(strsa):
         for i in range(norb):
@@ -129,19 +130,22 @@ def contract_2e_hubbard(u, fcivec, norb, nelec, opt=None):
 def absorb_h1e(h1e, eri, norb, nelec, fac=1):
     '''Modify 2e Hamiltonian to include 1e Hamiltonian contribution.
     '''
-    if not isinstance(nelec, (int, numpy.integer)):
+    if not isinstance(nelec, (int, np.integer)):
         nelec = sum(nelec)
-    h2e = ao2mo.restore(1, eri.copy(), norb)
-    f1e = h1e - numpy.einsum('jiik->jk', h2e) * .5
+    if eri.size != norb**4:
+        h2e = ao2mo.restore(1, eri.copy(), norb)
+    else:
+        h2e = eri
+    f1e = h1e - np.einsum('jiik->jk', h2e) * .5
     f1e = f1e * (1./(nelec+1e-100))
     for k in range(norb):
-        h2e[k,k,:,:] += f1e
-        h2e[:,:,k,k] += f1e
+        h2e = ops.index_add(h2e, ops.index[k,k,:,:], f1e)
+        h2e = ops.index_add(h2e, ops.index[:,:,k,k], f1e)
     return h2e * fac
 
 
 def make_hdiag(h1e, eri, norb, nelec, opt=None):
-    if isinstance(nelec, (int, numpy.integer)):
+    if isinstance(nelec, (int, np.integer)):
         nelecb = nelec//2
         neleca = nelec - nelecb
     else:
@@ -149,9 +153,10 @@ def make_hdiag(h1e, eri, norb, nelec, opt=None):
 
     occslista = cistring._gen_occslst(range(norb), neleca)
     occslistb = cistring._gen_occslst(range(norb), nelecb)
-    eri = ao2mo.restore(1, eri, norb)
-    diagj = numpy.einsum('iijj->ij', eri)
-    diagk = numpy.einsum('ijji->ij', eri)
+    if eri.size != norb**4:
+        eri = ao2mo.restore(1, eri, norb)
+    diagj = np.einsum('iijj->ij', eri)
+    diagk = np.einsum('ijji->ij', eri)
     hdiag = []
     for aocc in occslista:
         for bocc in occslistb:
@@ -160,14 +165,14 @@ def make_hdiag(h1e, eri, norb, nelec, opt=None):
                + diagj[bocc][:,aocc].sum() + diagj[bocc][:,bocc].sum() \
                - diagk[aocc][:,aocc].sum() - diagk[bocc][:,bocc].sum()
             hdiag.append(e1 + e2*.5)
-    return numpy.array(hdiag)
+    return np.array(hdiag)
 
 def kernel(h1e, eri, norb, nelec, ecore=0):
     h2e = absorb_h1e(h1e, eri, norb, nelec, .5)
 
     na = cistring.num_strings(norb, nelec//2)
-    ci0 = numpy.zeros((na,na))
-    ci0[0,0] = 1
+    ci0 = np.zeros((na,na))
+    ci0 = ops.index_update(ci0, ops.index[0,0], 1.)
 
     def hop(c):
         hc = contract_2e(h2e, c, norb, nelec)
@@ -175,7 +180,7 @@ def kernel(h1e, eri, norb, nelec, ecore=0):
     hdiag = make_hdiag(h1e, eri, norb, nelec)
     precond = lambda x, e, *args: x/(hdiag-e+1e-4)
     e, c = lib.davidson(hop, ci0.reshape(-1), precond)
-    return e+ecore
+    return e+ecore, c
 
 
 # dm_pq = <|p^+ q|>
@@ -183,13 +188,13 @@ def make_rdm1(fcivec, norb, nelec, opt=None):
     link_index = cistring.gen_linkstr_index(range(norb), nelec//2)
     na = cistring.num_strings(norb, nelec//2)
     fcivec = fcivec.reshape(na,na)
-    rdm1 = numpy.zeros((norb,norb))
+    rdm1 = np.zeros((norb,norb))
     for str0, tab in enumerate(link_index):
         for a, i, str1, sign in link_index[str0]:
-            rdm1[a,i] += sign * numpy.dot(fcivec[str1],fcivec[str0])
+            rdm1[a,i] += sign * np.dot(fcivec[str1],fcivec[str0])
     for str0, tab in enumerate(link_index):
         for a, i, str1, sign in link_index[str0]:
-            rdm1[a,i] += sign * numpy.dot(fcivec[:,str1],fcivec[:,str0])
+            rdm1[a,i] += sign * np.dot(fcivec[:,str1],fcivec[:,str0])
     return rdm1
 
 # dm_pq,rs = <|p^+ q r^+ s|>
@@ -198,10 +203,10 @@ def make_rdm12(fcivec, norb, nelec, opt=None):
     na = cistring.num_strings(norb, nelec//2)
     fcivec = fcivec.reshape(na,na)
 
-    rdm1 = numpy.zeros((norb,norb))
-    rdm2 = numpy.zeros((norb,norb,norb,norb))
+    rdm1 = np.zeros((norb,norb))
+    rdm2 = np.zeros((norb,norb,norb,norb))
     for str0, tab in enumerate(link_index):
-        t1 = numpy.zeros((na,norb,norb))
+        t1 = np.zeros((na,norb,norb))
         for a, i, str1, sign in link_index[str0]:
             t1[:,i,a] += sign * fcivec[str1,:]
 
@@ -209,9 +214,9 @@ def make_rdm12(fcivec, norb, nelec, opt=None):
             for a, i, str1, sign in tab:
                 t1[k,i,a] += sign * fcivec[str0,str1]
 
-        rdm1 += numpy.einsum('m,mij->ij', fcivec[str0], t1)
+        rdm1 += np.einsum('m,mij->ij', fcivec[str0], t1)
         # i^+ j|0> => <0|j^+ i, so swap i and j
-        rdm2 += numpy.einsum('mij,mkl->jikl', t1, t1)
+        rdm2 += np.einsum('mij,mkl->jikl', t1, t1)
     return reorder_rdm(rdm1, rdm2)
 
 
@@ -253,9 +258,9 @@ if __name__ == '__main__':
     m.kernel()
     norb = m.mo_coeff.shape[1]
     nelec = mol.nelectron - 2
-    h1e = reduce(numpy.dot, (m.mo_coeff.T, m.get_hcore(), m.mo_coeff))
+    h1e = reduce(np.dot, (m.mo_coeff.T, m.get_hcore(), m.mo_coeff))
     eri = ao2mo.kernel(m._eri, m.mo_coeff, compact=False)
     eri = eri.reshape(norb,norb,norb,norb)
 
-    e1 = kernel(h1e, eri, norb, nelec)
+    e1 = kernel(h1e, eri, norb, nelec)[0]
     print(e1, e1 - -7.9766331504361414)

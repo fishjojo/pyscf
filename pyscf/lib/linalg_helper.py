@@ -209,7 +209,7 @@ def _fill_heff(heff, xs, ax, xt, axt, dot):
 
 def davidson(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
              lindep=DAVIDSON_LINDEP, max_memory=MAX_MEMORY,
-             dot=numpy.dot, callback=None,
+             dot=np.dot, callback=None,
              nroots=1, lessio=False, pick=None, verbose=logger.WARN,
              follow_state=FOLLOW_STATE):
     r'''Davidson diagonalization method to solve  a c = e c.  Ref
@@ -396,7 +396,7 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
 
     if callable(x0):  # lazy initialization to reduce memory footprint
         x0 = x0()
-    if isinstance(x0, numpy.ndarray) and x0.ndim == 1:
+    if getattr(x0, "ndim", None) == 1:
         x0 = [x0]
     #max_cycle = min(max_cycle, x0[0].size)
     max_space = max_space + (nroots-1) * 3
@@ -450,9 +450,9 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
 
         if dtype is None:
             try:
-                dtype = numpy.result_type(axt[0], xt[0])
+                dtype = np.result_type(axt[0], xt[0])
             except IndexError:
-                dtype = numpy.result_type(ax[0].dtype, xs[0].dtype)
+                dtype = np.result_type(ax[0].dtype, xs[0].dtype)
         if heff is None:  # Lazy initilize heff to determine the dtype
             heff = np.empty((max_space+nroots,max_space+nroots), dtype=dtype)
         else:
@@ -490,7 +490,7 @@ def davidson1(aop, x0, precond, tol=1e-12, max_cycle=50, max_space=12,
             for k, ek in enumerate(e):
                 if not conv[k]:
                     xt[k] = ax0[k] - ek * x0[k]
-                    dx_norm[k] = numpy.sqrt(dot(xt[k].conj(), xt[k]).real)
+                    dx_norm[k] = np.sqrt(dot(xt[k].conj(), xt[k]).real)
                     if abs(de[k]) < tol and dx_norm[k] < toloose:
                         log.debug('root %d converged  |r|= %4.3g  e= %s  max|de|= %4.3g',
                                   k, dx_norm[k], ek, de[k])
