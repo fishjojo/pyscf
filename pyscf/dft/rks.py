@@ -465,8 +465,10 @@ class KohnShamDFT(object):
 
     def reset(self, mol=None):
         hf.SCF.reset(self, mol)
-        self.grids.reset(mol)
-        self.nlcgrids.reset(mol)
+        if getattr(self, 'grids', None) is not None:
+            self.grids.reset(mol)
+        if getattr(self, 'nlcgrids', None) is not None:
+            self.nlcgrids.reset(mol)
         return self
 
 

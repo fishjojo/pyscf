@@ -167,7 +167,7 @@ def make_hdiag(h1e, eri, norb, nelec, opt=None):
             hdiag.append(e1 + e2*.5)
     return np.array(hdiag)
 
-def kernel(h1e, eri, norb, nelec, ecore=0):
+def kernel(h1e, eri, norb, nelec, ecore=0, nroots=1):
     h2e = absorb_h1e(h1e, eri, norb, nelec, .5)
 
     na = cistring.num_strings(norb, nelec//2)
@@ -179,7 +179,7 @@ def kernel(h1e, eri, norb, nelec, ecore=0):
         return hc.reshape(-1)
     hdiag = make_hdiag(h1e, eri, norb, nelec)
     precond = lambda x, e, *args: x/(hdiag-e+1e-4)
-    e, c = lib.davidson(hop, ci0.reshape(-1), precond)
+    e, c = lib.davidson(hop, ci0.reshape(-1), precond, nroots=nroots)
     return e+ecore, c
 
 
