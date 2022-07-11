@@ -588,7 +588,7 @@ class KSCF(pbchf.SCF):
         if dm_kpts is None:
             dm_kpts = lib.asarray([dm]*len(self.kpts))
 
-        ne = numpy.einsum('kij,kji->', dm_kpts, self.get_ovlp(cell)).real
+        ne = numpy.einsum('kij,kji->', dm_kpts, stop_grad(self.get_ovlp(cell))).real
         # FIXME: consider the fractional num_electron or not? This maybe
         # relate to the charged system.
         nkpts = len(self.kpts)

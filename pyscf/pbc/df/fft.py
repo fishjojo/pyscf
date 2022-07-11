@@ -20,8 +20,9 @@
 
 import copy
 import numpy
+from pyscf import numpy as np
 from pyscf import lib
-from pyscf.lib import logger
+from pyscf.lib import logger, stop_grad
 from pyscf.pbc import tools
 from pyscf.pbc.gto import pseudo, estimate_ke_cutoff, error_for_ke_cutoff
 from pyscf.pbc.df import ft_ao
@@ -220,7 +221,7 @@ class FFTDF(lib.StreamObject):
                         '        mf = mf.mix_density_fit()')
 
         if cell.ke_cutoff is None:
-            ke_cutoff = tools.mesh_to_cutoff(cell.lattice_vectors(), self.mesh).min()
+            ke_cutoff = tools.mesh_to_cutoff(stop_grad(cell.lattice_vectors()), self.mesh).min()
         else:
             ke_cutoff = numpy.min(cell.ke_cutoff)
         ke_guess = estimate_ke_cutoff(cell, cell.precision)
@@ -250,7 +251,7 @@ class FFTDF(lib.StreamObject):
             grids.build(with_non0tab=True)
 
         if kpts is None: kpts = self.kpts
-        kpts = numpy.asarray(kpts)
+        kpts = np.asarray(kpts)
 
         if (cell.dimension < 2 or
             (cell.dimension == 2 and cell.low_dim_ft_type == 'inf_vacuum')):

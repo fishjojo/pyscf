@@ -27,7 +27,9 @@ import ctypes
 import copy
 import numpy
 import scipy.special
+from pyscf import numpy as np
 from pyscf import lib
+from pyscf.lib import ops
 from pyscf import gto
 
 libpbc = lib.load_library('libpbc')
@@ -42,22 +44,23 @@ def get_gth_vlocG_part1(cell, Gv):
     '''
     from pyscf.pbc import tools
     coulG = tools.get_coulG(cell, Gv=Gv)
-    G2 = numpy.einsum('ix,ix->i', Gv, Gv)
-    G0idx = numpy.where(G2==0)[0]
+    G2 = np.einsum('ix,ix->i', Gv, Gv)
+    G0idx = np.where(G2==0)[0]
 
     if cell.dimension != 2 or cell.low_dim_ft_type == 'inf_vacuum':
-        vlocG = numpy.zeros((cell.natm, len(G2)))
+        #vlocG = np.zeros((cell.natm, len(G2)))
+        vlocG = cell.atom_charges()[:,None] * coulG[None,:]
         for ia in range(cell.natm):
             Zia = cell.atom_charge(ia)
             symb = cell.atom_symbol(ia)
             # Note the signs -- potential here is positive
-            vlocG[ia] = Zia * coulG
+            #vlocG = ops.index_update(vlocG, ops.index[ia], Zia * coulG)
             if symb in cell._pseudo:
                 pp = cell._pseudo[symb]
                 rloc, nexp, cexp = pp[1:3+1]
-                vlocG[ia] *= numpy.exp(-0.5*rloc**2 * G2)
+                vlocG = ops.index_mul(vlocG, ops.index[ia], np.exp(-0.5*rloc**2 * G2))
                 # alpha parameters from the non-divergent Hartree+Vloc G=0 term.
-                vlocG[ia,G0idx] = -2*numpy.pi*Zia*rloc**2
+                vlocG = ops.index_update(vlocG, ops.index[ia,G0idx], -2*numpy.pi*Zia*rloc**2)
 
     elif cell.dimension == 2:
         # The following 2D ewald summation is taken from:

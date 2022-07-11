@@ -17,7 +17,9 @@
 #
 
 import ctypes
-import numpy as np
+import numpy
+from pyscf import __config__
+from pyscf import numpy as np
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf import dft
@@ -26,6 +28,7 @@ from pyscf.dft.gen_grid import (sg1_prune, nwchem_prune, treutler_prune,
                                 stratmann, original_becke, gen_atomic_grids,
                                 BLKSIZE)
 
+PYSCFAD = getattr(__config__, 'pyscfad', False)
 libpbc = lib.load_library('libpbc')
 
 def make_mask(cell, coords, relativity=0, shls_slice=None, verbose=None):
@@ -35,7 +38,7 @@ def make_mask(cell, coords, relativity=0, shls_slice=None, verbose=None):
     For given shell ID and block ID, the value of the extended mask array
     means the number of images in Ls that does not vanish.
     '''
-    coords = np.asarray(coords, order='F')
+    coords = numpy.asarray(coords, order='F')
     natm = ctypes.c_int(cell._atm.shape[0])
     nbas = ctypes.c_int(cell.nbas)
     ngrids = len(coords)
@@ -44,10 +47,10 @@ def make_mask(cell, coords, relativity=0, shls_slice=None, verbose=None):
     assert(shls_slice == (0, cell.nbas))
 
     Ls = cell.get_lattice_Ls(dimension=3)
-    Ls = Ls[np.argsort(lib.norm(Ls, axis=1))]
+    Ls = Ls[numpy.argsort(lib.norm(Ls, axis=1))]
 
-    non0tab = np.empty(((ngrids+BLKSIZE-1)//BLKSIZE, cell.nbas),
-                          dtype=np.uint8)
+    non0tab = numpy.empty(((ngrids+BLKSIZE-1)//BLKSIZE, cell.nbas),
+                          dtype=numpy.uint8)
     libpbc.PBCnr_ao_screen(non0tab.ctypes.data_as(ctypes.c_void_p),
                            coords.ctypes.data_as(ctypes.c_void_p),
                            ctypes.c_int(ngrids),
@@ -86,9 +89,8 @@ class UniformGrids(lib.StreamObject):
         if self._weights is not None:
             return self._weights
         else:
-            ngrids = np.prod(self.mesh)
-            weights = np.empty(ngrids)
-            weights[:] = self.cell.vol / ngrids
+            ngrids = numpy.prod(self.mesh)
+            weights = np.full((ngrids,), self.cell.vol / ngrids)
             return weights
     @weights.setter
     def weights(self, x):
@@ -103,7 +105,7 @@ class UniformGrids(lib.StreamObject):
         coords = self.coords
         weights = self.weights
 
-        if with_non0tab:
+        if with_non0tab and not PYSCFAD:
             self.non0tab = self.make_mask(cell, coords)
         else:
             self.non0tab = None
@@ -169,7 +171,7 @@ def get_becke_grids(cell, atom_grid={}, radi_method=dft.radi.gauss_chebyshev,
             # search for grids in unit cell
             c = b.dot(coords.T).round(8)
 
-            mask = np.ones(c.shape[1], dtype=bool)
+            mask = numpy.ones(c.shape[1], dtype=bool)
             if dimension >= 1:
                 mask &= (c[0]>=0) & (c[0]<=1)
             if dimension >= 2:
@@ -194,11 +196,11 @@ def get_becke_grids(cell, atom_grid={}, radi_method=dft.radi.gauss_chebyshev,
                 weights_all.append(vol)
                 supatm_idx.append(k)
             k += 1
-    offs = np.append(0, np.cumsum([w.size for w in weights_all]))
-    coords_all = np.vstack(coords_all)
-    weights_all = np.hstack(weights_all)
+    offs = numpy.append(0, numpy.cumsum([w.size for w in weights_all]))
+    coords_all = numpy.vstack(coords_all)
+    weights_all = numpy.hstack(weights_all)
 
-    atm_coords = np.asarray(atm_coords.reshape(-1,3)[supatm_idx], order='C')
+    atm_coords = numpy.asarray(atm_coords.reshape(-1,3)[supatm_idx], order='C')
     sup_natm = len(atm_coords)
     p_radii_table = lib.c_null_ptr()
     fn = dft.gen_grid.libdft.VXCgen_grid
@@ -209,8 +211,8 @@ def get_becke_grids(cell, atom_grid={}, radi_method=dft.radi.gauss_chebyshev,
     displs = lib.misc._blocksize_partition(offs, blocksize)
     for n0, n1 in zip(displs[:-1], displs[1:]):
         p0, p1 = offs[n0], offs[n1]
-        pbecke = np.empty((sup_natm,p1-p0))
-        coords = np.asarray(coords_all[p0:p1], order='F')
+        pbecke = numpy.empty((sup_natm,p1-p0))
+        coords = numpy.asarray(coords_all[p0:p1], order='F')
         fn(pbecke.ctypes.data_as(ctypes.c_void_p),
            coords.ctypes.data_as(ctypes.c_void_p),
            atm_coords.ctypes.data_as(ctypes.c_void_p),

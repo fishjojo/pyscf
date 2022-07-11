@@ -33,7 +33,7 @@ from pyscf import numpy as np
 import pyscf.lib.parameters as param
 from pyscf import lib
 from pyscf.dft import radi
-from pyscf.lib import logger, ops
+from pyscf.lib import logger, ops, stop_grad
 from pyscf.gto import mole
 from pyscf.gto import moleintor
 from pyscf.gto.mole import (_symbol, _rm_digit, _atom_symbol, _std_symbol,
@@ -574,7 +574,7 @@ def get_bounding_sphere(cell, rcut):
     #n3 = numpy.ceil(lib.norm(Gmat[2,:])*rcut)
     #cut = numpy.array([n1, n2, n3]).astype(int)
     b = cell.reciprocal_vectors(norm_to=1)
-    heights_inv = lib.norm(b, axis=1)
+    heights_inv = lib.norm(stop_grad(b), axis=1)
     nimgs = numpy.ceil(rcut*heights_inv).astype(int)
 
     for i in range(cell.dimension, 3):
@@ -614,7 +614,7 @@ def get_Gv_weights(cell, mesh=None, **kwargs):
     ry = numpy.fft.fftfreq(mesh[1], 1./mesh[1])
     rz = numpy.fft.fftfreq(mesh[2], 1./mesh[2])
     b = cell.reciprocal_vectors()
-    weights = abs(numpy.linalg.det(b))
+    weights = abs(np.linalg.det(b))
 
     if (cell.dimension < 2 or
         (cell.dimension == 2 and cell.low_dim_ft_type == 'inf_vacuum')):
@@ -641,7 +641,7 @@ def get_Gv_weights(cell, mesh=None, **kwargs):
             weights = numpy.einsum('i,k->ik', wxy, wz).reshape(-1)
 
     Gvbase = (rx, ry, rz)
-    Gv = numpy.dot(lib.cartesian_prod(Gvbase), b)
+    Gv = np.dot(lib.cartesian_prod(Gvbase), b)
     # 1/cell.vol == det(b)/(2pi)^3
     weights *= 1/(2*numpy.pi)**3
     return Gv, Gvbase, weights
@@ -717,7 +717,7 @@ def get_ewald_params(cell, precision=None, mesh=None):
         if mesh is None:
             mesh = cell.mesh
         mesh = _cut_mesh_for_ewald(cell, mesh)
-        Gmax = min(numpy.asarray(mesh)//2 * lib.norm(cell.reciprocal_vectors(), axis=1))
+        Gmax = min(numpy.asarray(mesh)//2 * lib.norm(stop_grad(cell.reciprocal_vectors()), axis=1))
         log_precision = numpy.log(precision/(4*numpy.pi*(Gmax+1e-100)**2))
         ew_eta = numpy.sqrt(-Gmax**2/(4*log_precision)) + 1e-100
         ew_cut = _estimate_rcut(ew_eta**2, 0, 1., precision)
@@ -725,7 +725,7 @@ def get_ewald_params(cell, precision=None, mesh=None):
 
 def _cut_mesh_for_ewald(cell, mesh):
     mesh = numpy.copy(mesh)
-    mesh_max = numpy.asarray(numpy.linalg.norm(cell.lattice_vectors(), axis=1) * 2,
+    mesh_max = numpy.asarray(numpy.linalg.norm(stop_grad(cell.lattice_vectors()), axis=1) * 2,
                           dtype=int)  # roughly 2 grids per bohr
     if (cell.dimension < 2 or
         (cell.dimension == 2 and cell.low_dim_ft_type == 'inf_vacuum')):
@@ -779,13 +779,13 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     #   http://www.fisica.uniud.it/~giannozz/public/ewald.pdf
     mesh = _cut_mesh_for_ewald(cell, cell.mesh)
     Gv, Gvbase, weights = cell.get_Gv_weights(mesh)
-    absG2 = numpy.einsum('gi,gi->g', Gv, Gv)
-    absG2[absG2==0] = 1e200
+    absG2 = np.einsum('gi,gi->g', Gv, Gv)
+    absG2 = ops.index_update(absG2, ops.index[absG2==0], 1e200)
     if cell.dimension != 2 or cell.low_dim_ft_type == 'inf_vacuum':
         coulG = 4*numpy.pi / absG2
         coulG *= weights
         ZSI = np.einsum("i,ij->j", chargs, cell.get_SI(Gv))
-        ZexpG2 = ZSI * numpy.exp(-absG2/(4*ew_eta**2))
+        ZexpG2 = ZSI * np.exp(-absG2/(4*ew_eta**2))
         ewg = .5 * np.einsum('i,i,i', ZSI.conj(), ZexpG2, coulG).real
 
     elif cell.dimension == 2:  # Truncated Coulomb
@@ -918,8 +918,8 @@ def get_uniform_grids(cell, mesh=None, **kwargs):
         mesh = [2*n+1 for n in kwargs['gs']]
     mesh = numpy.asarray(mesh, dtype=numpy.double)
     qv = lib.cartesian_prod([numpy.arange(x) for x in mesh])
-    a_frac = numpy.einsum('i,ij->ij', 1./mesh, cell.lattice_vectors())
-    coords = numpy.dot(qv, a_frac)
+    a_frac = np.einsum('i,ij->ij', 1./mesh, cell.lattice_vectors())
+    coords = np.dot(qv, a_frac)
     return coords
 gen_uniform_grids = get_uniform_grids
 
@@ -1384,7 +1384,7 @@ class Cell(mole.Mole):
                               for ib in range(self.nbas)] + [0])
             self._rcut_from_build = True
 
-        _a = self.lattice_vectors()
+        _a = stop_grad(self.lattice_vectors())
         if numpy.linalg.det(_a) < 0:
             sys.stderr.write('''WARNING!
   Lattice are not in right-handed coordinate system. This can cause wrong value for some integrals.
@@ -1461,7 +1461,7 @@ class Cell(mole.Mole):
 
     @property
     def vol(self):
-        return abs(numpy.linalg.det(self.lattice_vectors()))
+        return abs(np.linalg.det(self.lattice_vectors()))
 
     @property
     def Gv(self):
@@ -1536,7 +1536,7 @@ class Cell(mole.Mole):
             a = self.a.replace(';',' ').replace(',',' ').replace('\n',' ')
             a = numpy.asarray([float(x) for x in a.split()]).reshape(3,3)
         else:
-            a = numpy.asarray(self.a, dtype=numpy.double)
+            a = np.asarray(self.a, dtype=np.double)
         if isinstance(self.unit, (str, unicode)):
             if self.unit.startswith(('B','b','au','AU')):
                 return a
@@ -1558,13 +1558,15 @@ class Cell(mole.Mole):
         '''  # noqa: E501
         a = self.lattice_vectors()
         if self.dimension == 1:
+            a = stop_grad(a)
             assert(abs(numpy.dot(a[0], a[1])) < 1e-9 and
                    abs(numpy.dot(a[0], a[2])) < 1e-9 and
                    abs(numpy.dot(a[1], a[2])) < 1e-9)
         elif self.dimension == 2:
+            a = stop_grad(a)
             assert(abs(numpy.dot(a[0], a[2])) < 1e-9 and
                    abs(numpy.dot(a[1], a[2])) < 1e-9)
-        b = numpy.linalg.inv(a.T)
+        b = np.linalg.inv(a.T)
         return norm_to * b
 
     def get_abs_kpts(self, scaled_kpts):
@@ -1577,7 +1579,7 @@ class Cell(mole.Mole):
         Returns:
             abs_kpts : (nkpts, 3) ndarray of floats
         '''
-        return numpy.dot(scaled_kpts, self.reciprocal_vectors())
+        return np.dot(scaled_kpts, self.reciprocal_vectors())
 
     def get_scaled_kpts(self, abs_kpts):
         '''Get scaled k-points, given absolute k-points in 1/Bohr.
@@ -1588,7 +1590,7 @@ class Cell(mole.Mole):
         Returns:
             scaled_kpts : (nkpts, 3) ndarray of floats
         '''
-        return 1./(2*numpy.pi)*numpy.dot(abs_kpts, self.lattice_vectors().T)
+        return 1./(2*numpy.pi)*np.dot(abs_kpts, self.lattice_vectors().T)
 
     make_kpts = get_kpts = make_kpts
 

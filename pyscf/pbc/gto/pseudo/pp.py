@@ -23,10 +23,12 @@ For GTH/HGH PPs, see:
     Hartwigsen, Goedecker, and Hutter, PRB 58, 3641 (1998)
 '''
 
-import numpy as np
+import numpy
 import scipy.linalg
 import scipy.special
+from pyscf import numpy as np
 from pyscf import lib
+from pyscf.lib import ops
 from pyscf.gto import mole
 from pyscf.pbc.gto.pseudo import pp_int
 
@@ -42,7 +44,7 @@ def get_alphas(cell):
 
 def get_alphas_gth(cell):
     '''alpha parameters for the local GTH pseudopotential.'''
-    G0 = np.zeros((1,3))
+    G0 = numpy.zeros((1,3))
     return -get_gth_vlocG(cell, G0)
 
 def get_vlocG(cell, Gv=None):
@@ -89,17 +91,19 @@ def get_gth_vlocG(cell, Gv):
         if nexp >= 4:
             cfacs += cexp[3] * (105 - 105*G2_red + 21*G2_red**2 - G2_red**3)
 
-        vlocG[ia,:] -= (2*np.pi)**(3/2.)*rloc**3*np.exp(-0.5*G2_red) * cfacs
+        #vlocG[ia,:] -= (2*numpy.pi)**(3/2.)*rloc**3*numpy.exp(-0.5*G2_red) * cfacs
+        vlocG = ops.index_add(vlocG, ops.index[ia,:],
+                              -(2*numpy.pi)**(3/2.)*rloc**3*np.exp(-0.5*G2_red) * cfacs)
 
     return vlocG
 
-def get_projG(cell, kpt=np.zeros(3)):
+def get_projG(cell, kpt=numpy.zeros(3)):
     '''PP weight and projector for the nonlocal PP in G space.
 
     Returns:
-        hs : list( list( np.array( , ) ) )
+        hs : list( list( numpy.array( , ) ) )
          - hs[atm][l][i,j]
-        projs : list( list( list( list( np.array(ngrids) ) ) ) )
+        projs : list( list( list( list( numpy.array(ngrids) ) ) ) )
          - projs[atm][l][m][i][ngrids]
     '''
     return get_gth_projG(cell, kpt+cell.Gv)
@@ -119,12 +123,12 @@ def get_gth_projG(cell, Gvs):
     for ia in range(cell.natm):
         symb = cell.atom_symbol(ia)
         pp = cell._pseudo[symb]
-        # nproj_types = pp[4]
+        # numpyroj_types = pp[4]
         h_ia = []
         proj_ia = []
         for l,proj in enumerate(pp[5:]):
             rl, nl, hl = proj
-            h_ia.append( np.array(hl) )
+            h_ia.append( numpy.array(hl) )
             proj_ia_l = []
             for m in range(-l,l+1):
                 projG_ang = Ylm(l,m,thetas,phis).conj()
@@ -140,12 +144,12 @@ def get_gth_projG(cell, Gvs):
     return hs, projs
 
 def projG_li(G, l, i, rl):
-    G = np.array(G)
+    G = numpy.array(G)
     G_red = G*rl
 
     # MH Eq. (4.81)
-    return (_qli(G_red,l,i) * np.pi**(5/4.) * G**l * np.sqrt(rl**(2*l+3))
-            / np.exp(0.5*G_red**2) )
+    return (_qli(G_red,l,i) * numpy.pi**(5/4.) * G**l * numpy.sqrt(rl**(2*l+3))
+            / numpy.exp(0.5*G_red**2) )
 
 def _qli(x,l,i):
     # MH Eqs. (4.82)-(4.93) :: beware typos!
@@ -195,11 +199,11 @@ def _qli(x,l,i):
 
 def Ylm_real(l,m,theta,phi):
     '''Real spherical harmonics, if desired.'''
-    Ylabsm = Ylm(l,np.abs(m),theta,phi)
+    Ylabsm = Ylm(l,numpy.abs(m),theta,phi)
     if m < 0:
-        return np.sqrt(2.) * Ylabsm.imag
+        return numpy.sqrt(2.) * Ylabsm.imag
     elif m > 0:
-        return np.sqrt(2.) * Ylabsm.real
+        return numpy.sqrt(2.) * Ylabsm.real
     else: # m == 0
         return Ylabsm.real
 
@@ -220,13 +224,13 @@ def cart2polar(rvec):
     r = lib.norm(rvec, axis=1)
     # theta is the polar angle, 0 < theta < pi
     # catch possible 0/0
-    theta = np.arccos(z/(r+1e-200))
+    theta = numpy.arccos(z/(r+1e-200))
     # phi is the azimuthal angle, 0 < phi < 2pi (or -pi < phi < pi)
-    phi = np.arctan2(y,x)
+    phi = numpy.arctan2(y,x)
     return r, theta, phi
 
 
-def get_pp(cell, kpt=np.zeros(3)):
+def get_pp(cell, kpt=numpy.zeros(3)):
     '''Get the periodic pseudotential nuc-el AO matrix
     '''
     from pyscf.pbc import tools
@@ -236,31 +240,31 @@ def get_pp(cell, kpt=np.zeros(3)):
 
     SI = cell.get_SI()
     vlocG = get_vlocG(cell)
-    vpplocG = -np.sum(SI * vlocG, axis=0)
-    vpplocG[0] = np.sum(get_alphas(cell)) # from get_jvloc_G0 function
+    vpplocG = -numpy.sum(SI * vlocG, axis=0)
+    vpplocG[0] = numpy.sum(get_alphas(cell)) # from get_jvloc_G0 function
 
     # vpploc evaluated in real-space
     vpplocR = tools.ifft(vpplocG, cell.mesh).real
-    vpploc = np.dot(aoR.T.conj(), vpplocR.reshape(-1,1)*aoR)
+    vpploc = numpy.dot(aoR.T.conj(), vpplocR.reshape(-1,1)*aoR)
 
     # vppnonloc evaluated in reciprocal space
-    aokG = tools.fftk(np.asarray(aoR.T, order='C'),
-                      cell.mesh, np.exp(-1j*np.dot(coords, kpt))).T
+    aokG = tools.fftk(numpy.asarray(aoR.T, order='C'),
+                      cell.mesh, numpy.exp(-1j*numpy.dot(coords, kpt))).T
     ngrids = len(aokG)
 
     fakemol = mole.Mole()
-    fakemol._atm = np.zeros((1,mole.ATM_SLOTS), dtype=np.int32)
-    fakemol._bas = np.zeros((1,mole.BAS_SLOTS), dtype=np.int32)
+    fakemol._atm = numpy.zeros((1,mole.ATM_SLOTS), dtype=numpy.int32)
+    fakemol._bas = numpy.zeros((1,mole.BAS_SLOTS), dtype=numpy.int32)
     ptr = mole.PTR_ENV_START
-    fakemol._env = np.zeros(ptr+10)
+    fakemol._env = numpy.zeros(ptr+10)
     fakemol._bas[0,mole.NPRIM_OF ] = 1
     fakemol._bas[0,mole.NCTR_OF  ] = 1
     fakemol._bas[0,mole.PTR_EXP  ] = ptr+3
     fakemol._bas[0,mole.PTR_COEFF] = ptr+4
-    Gv = np.asarray(cell.Gv+kpt)
+    Gv = numpy.asarray(cell.Gv+kpt)
     G_rad = lib.norm(Gv, axis=1)
 
-    vppnl = np.zeros((nao,nao), dtype=np.complex128)
+    vppnl = numpy.zeros((nao,nao), dtype=numpy.complex128)
     for ia in range(cell.natm):
         symb = cell.atom_symbol(ia)
         if symb not in cell._pseudo:
@@ -269,31 +273,31 @@ def get_pp(cell, kpt=np.zeros(3)):
         for l, proj in enumerate(pp[5:]):
             rl, nl, hl = proj
             if nl > 0:
-                hl = np.asarray(hl)
+                hl = numpy.asarray(hl)
                 fakemol._bas[0,mole.ANG_OF] = l
                 fakemol._env[ptr+3] = .5*rl**2
-                fakemol._env[ptr+4] = rl**(l+1.5)*np.pi**1.25
+                fakemol._env[ptr+4] = rl**(l+1.5)*numpy.pi**1.25
                 pYlm_part = fakemol.eval_gto('GTOval', Gv)
 
-                pYlm = np.empty((nl,l*2+1,ngrids))
+                pYlm = numpy.empty((nl,l*2+1,ngrids))
                 for k in range(nl):
                     qkl = _qli(G_rad*rl, l, k)
                     pYlm[k] = pYlm_part.T * qkl
                 # pYlm is real
-                SPG_lmi = np.einsum('g,nmg->nmg', SI[ia].conj(), pYlm)
-                SPG_lm_aoG = np.einsum('nmg,gp->nmp', SPG_lmi, aokG)
-                tmp = np.einsum('ij,jmp->imp', hl, SPG_lm_aoG)
-                vppnl += np.einsum('imp,imq->pq', SPG_lm_aoG.conj(), tmp)
+                SPG_lmi = numpy.einsum('g,nmg->nmg', SI[ia].conj(), pYlm)
+                SPG_lm_aoG = numpy.einsum('nmg,gp->nmp', SPG_lmi, aokG)
+                tmp = numpy.einsum('ij,jmp->imp', hl, SPG_lm_aoG)
+                vppnl += numpy.einsum('imp,imq->pq', SPG_lm_aoG.conj(), tmp)
     vppnl *= (1./ngrids**2)
 
-    if aoR.dtype == np.double:
+    if aoR.dtype == numpy.double:
         return vpploc.real + vppnl.real
     else:
         return vpploc + vppnl
 
 
-def get_jvloc_G0(cell, kpt=np.zeros(3)):
+def get_jvloc_G0(cell, kpt=numpy.zeros(3)):
     '''Get the (separately divergent) Hartree + Vloc G=0 contribution.
     '''
     ovlp = cell.pbc_intor('int1e_ovlp', hermi=1, kpts=kpt)
-    return 1./cell.vol * np.sum(get_alphas(cell)) * ovlp
+    return 1./cell.vol * numpy.sum(get_alphas(cell)) * ovlp
