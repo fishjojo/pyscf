@@ -1535,11 +1535,11 @@ def _eval_xc(hyb, fn_facs, rho, spin=0, relativity=0, deriv=1, verbose=None):
             kxc = (outbuf[21:25].T, outbuf[25:34].T, outbuf[34:46].T, outbuf[46:56].T)
     elif nvar == 4:  # MGGA
         if deriv > 0:
-            vxc = outbuf[1:5]
+            vxc = tuple(outbuf[1:5])
         if deriv > 1:
-            fxc = outbuf[5:15]
+            fxc = tuple(outbuf[5:15])
         if deriv > 2:
-            kxc = outbuf[15:19]
+            kxc = tuple(outbuf[15:19])
     elif nvar == 9:  # MGGA
         if deriv > 0:
             vxc = (outbuf[1:3].T, outbuf[3:6].T, outbuf[6:8].T, outbuf[8:10].T)
