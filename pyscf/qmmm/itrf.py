@@ -312,7 +312,7 @@ def qmmm_grad_for_scf(scf_grad):
                 fakemol = gto.fakemol_for_charges(coords[i0:i1], expnts[i0:i1])
                 j3c = df.incore.aux_e2(mol, fakemol, intor, aosym='s1',
                                        comp=3, cintopt=cintopt)
-                g[i0:i1] = -numpy.einsum('ipqk,qp->ik', j3c * charges[i0:i1], dm).T
+                g[i0:i1] = numpy.einsum('ipqk,qp->ik', j3c * charges[i0:i1], dm).T
             return g
 
         def grad_nuc(self, mol=None, atmlst=None):
@@ -337,7 +337,7 @@ def qmmm_grad_for_scf(scf_grad):
             if mol is None: mol = self.mol
             coords = self.base.mm_mol.atom_coords()
             charges = self.base.mm_mol.atom_charges()
-            g_mm = numpy.empty_like(coords)
+            g_mm = numpy.zeros_like(coords)
             for i in range(mol.natm):
                 q1 = mol.atom_charge(i)
                 r1 = mol.atom_coord(i)
