@@ -23,13 +23,14 @@ from collections import OrderedDict
 from numbers import Number
 import numpy as np
 from pyscf import lib
+from pyscf.lib import stop_grad
 from pyscf import __config__
 
 KPT_DIFF_TOL = getattr(__config__, 'pbc_lib_kpts_helper_kpt_diff_tol', 1e-6)
 
 
 def is_zero(kpt):
-    return abs(np.asarray(kpt)).sum() < KPT_DIFF_TOL
+    return abs(np.asarray(stop_grad(kpt))).sum() < KPT_DIFF_TOL
 gamma_point = is_zero
 
 def member(kpt, kpts):

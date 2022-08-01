@@ -16,8 +16,10 @@
 # Author: Qiming Sun <osirpt.sun@gmail.com>
 #
 
+import numpy
 from pyscf import numpy as np
 from pyscf import lib
+from pyscf.lib import stop_grad
 from pyscf import ao2mo
 from pyscf.lib import ops
 from pyscf.fci import cistring
@@ -42,7 +44,6 @@ def contract_1e(f1e, fcivec, norb, nelec):
             t1[a,i,:,str1] += sign * ci0[:,str0]
     fcinew = np.dot(f1e.reshape(-1), t1.reshape(-1,na*nb))
     return fcinew.reshape(fcivec.shape)
-
 
 def contract_2e(eri, fcivec, norb, nelec, opt=None):
     '''Compute E_{pq}E_{rs}|CI>'''
@@ -169,32 +170,39 @@ def make_hdiag(h1e, eri, norb, nelec, opt=None):
 
 def kernel(h1e, eri, norb, nelec, ecore=0, nroots=1):
     h2e = absorb_h1e(h1e, eri, norb, nelec, .5)
-
     na = cistring.num_strings(norb, nelec//2)
-    ci0 = np.zeros((na,na))
-    ci0 = ops.index_update(ci0, ops.index[0,0], 1.)
+
+    hdiag = make_hdiag(h1e, eri, norb, nelec)
+    try:
+        from .direct_spin1 import pspace
+        addrs, h0 = pspace(stop_grad(h1e), stop_grad(eri), norb, nelec, stop_grad(hdiag), nroots)
+    except:
+        addrs = numpy.argsort(hdiag)[:nroots]
+    ci0 = []
+    for addr in addrs:
+        x = numpy.zeros((na*na))
+        x[addr] = 1.
+        ci0.append(x.ravel())
 
     def hop(c):
         hc = contract_2e(h2e, c, norb, nelec)
-        return hc.reshape(-1)
-    hdiag = make_hdiag(h1e, eri, norb, nelec)
+        return hc.ravel()
     precond = lambda x, e, *args: x/(hdiag-e+1e-4)
-    e, c = lib.davidson(hop, ci0.reshape(-1), precond, nroots=nroots)
+    e, c = lib.davidson(hop, ci0, precond, nroots=nroots)
     return e+ecore, c
-
 
 # dm_pq = <|p^+ q|>
 def make_rdm1(fcivec, norb, nelec, opt=None):
     link_index = cistring.gen_linkstr_index(range(norb), nelec//2)
     na = cistring.num_strings(norb, nelec//2)
     fcivec = fcivec.reshape(na,na)
-    rdm1 = np.zeros((norb,norb))
+    rdm1 = numpy.zeros((norb,norb))
     for str0, tab in enumerate(link_index):
         for a, i, str1, sign in link_index[str0]:
-            rdm1[a,i] += sign * np.dot(fcivec[str1],fcivec[str0])
+            rdm1[a,i] += sign * numpy.dot(fcivec[str1],fcivec[str0])
     for str0, tab in enumerate(link_index):
         for a, i, str1, sign in link_index[str0]:
-            rdm1[a,i] += sign * np.dot(fcivec[:,str1],fcivec[:,str0])
+            rdm1[a,i] += sign * numpy.dot(fcivec[:,str1],fcivec[:,str0])
     return rdm1
 
 # dm_pq,rs = <|p^+ q r^+ s|>
@@ -203,10 +211,10 @@ def make_rdm12(fcivec, norb, nelec, opt=None):
     na = cistring.num_strings(norb, nelec//2)
     fcivec = fcivec.reshape(na,na)
 
-    rdm1 = np.zeros((norb,norb))
-    rdm2 = np.zeros((norb,norb,norb,norb))
+    rdm1 = numpy.zeros((norb,norb))
+    rdm2 = numpy.zeros((norb,norb,norb,norb))
     for str0, tab in enumerate(link_index):
-        t1 = np.zeros((na,norb,norb))
+        t1 = numpy.zeros((na,norb,norb))
         for a, i, str1, sign in link_index[str0]:
             t1[:,i,a] += sign * fcivec[str1,:]
 
@@ -214,9 +222,9 @@ def make_rdm12(fcivec, norb, nelec, opt=None):
             for a, i, str1, sign in tab:
                 t1[k,i,a] += sign * fcivec[str0,str1]
 
-        rdm1 += np.einsum('m,mij->ij', fcivec[str0], t1)
+        rdm1 += numpy.einsum('m,mij->ij', fcivec[str0], t1)
         # i^+ j|0> => <0|j^+ i, so swap i and j
-        rdm2 += np.einsum('mij,mkl->jikl', t1, t1)
+        rdm2 += numpy.einsum('mij,mkl->jikl', t1, t1)
     return reorder_rdm(rdm1, rdm2)
 
 

@@ -245,9 +245,10 @@ def get_coulG(cell, k=numpy.zeros(3), exx=False, mf=None, mesh=None, Gv=None,
         # frequency counterparts.  Important if you want the gamma point and k-point
         # answers to agree
         b = cell.reciprocal_vectors()
-        box_edge = numpy.einsum('i,ij->ij', numpy.asarray(mesh)//2+0.5, stop_grad(b))
-        assert(all(numpy.linalg.solve(box_edge.T, k).round(9).astype(int)==0))
-        reduced_coords = numpy.linalg.solve(box_edge.T, stop_grad(kG.T)).T.round(9)
+        box_edge = np.einsum('i,ij->ij', numpy.asarray(mesh)//2+0.5, b)
+        box_edge_T = stop_grad(box_edge).T
+        assert(all(numpy.linalg.solve(box_edge_T, stop_grad(k)).round(9).astype(int)==0))
+        reduced_coords = numpy.linalg.solve(box_edge_T, stop_grad(kG).T).T.round(9)
         on_edge = reduced_coords.astype(int)
         if cell.dimension >= 1:
             equal2boundary |= reduced_coords[:,0] == 1
@@ -318,9 +319,10 @@ def get_coulG(cell, k=numpy.zeros(3), exx=False, mf=None, mesh=None, Gv=None,
 
         G0_idx = np.where(absG2==0)[0]
         if cell.dimension != 2 or cell.low_dim_ft_type == 'inf_vacuum':
-            with numpy.errstate(divide='ignore'):
-                coulG = 4*numpy.pi/absG2
-                coulG = ops.index_update(coulG, ops.index[G0_idx], 0)
+            #with numpy.errstate(divide='ignore'):
+            #    coulG = 4*numpy.pi/absG2
+            #    coulG = ops.index_update(coulG, ops.index[G0_idx], 0)
+            coulG = 4*numpy.pi/np.where(absG2>1e-16, absG2, 1e200)
 
         elif cell.dimension == 2:
             # The following 2D analytical fourier transform is taken from:

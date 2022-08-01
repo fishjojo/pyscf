@@ -759,8 +759,13 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     if ew_cut is None: ew_cut = cell.get_ewald_params()[1]
     chargs = cell.atom_charges()
     coords = cell.atom_coords()
+    Lall = cell.get_lattice_Ls(rcut=ew_cut)
 
-    ewovrl = cell._ewald_sr(coords, chargs, ew_eta, ew_cut)
+    rLij = coords[:,None,:] - coords[None,:,:] + Lall[:,None,None,:]
+    r2 = np.einsum('Lijx,Lijx->Lij', rLij, rLij)
+    r = np.sqrt(np.where(r2>1e-16, r2, 0.))
+    r = np.where(r>1e-16, r, 1e200)
+    ewovrl = .5 * np.einsum('i,j,Lij->', chargs, chargs, erfc(ew_eta *  r) / r)
 
     # last line of Eq. (F.5) in Martin
     ewself  = -.5 * numpy.dot(chargs,chargs) * 2 * ew_eta / numpy.sqrt(numpy.pi)
@@ -836,26 +841,6 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     logger.debug(cell, 'Ewald components = %.15g, %.15g, %.15g', ewovrl, ewself, ewg)
     return ewovrl + ewself + ewg
 
-def _ewald_sr(cell, coords=None, charges=None, ew_eta=None, ew_cut=None, Lall=None):
-    if coords is None:
-        coords = cell.atom_coords()
-    if charges is None:
-        charges = cell.atom_charges()
-    if ew_eta is None:
-        ew_eta = cell.get_ewald_params()[0]
-    if ew_cut is None:
-        ew_cut = cell.get_ewald_params()[1]
-    if Lall is None:
-        Lall = cell.get_lattice_Ls(rcut=ew_cut)
-
-    rLij = coords[:,None,:] - coords[None,:,:] + Lall[:,None,None,:]
-    r = np.sqrt(np.einsum('Lijx,Lijx->Lij', rLij, rLij))
-    rLij = None
-    #r[r<1e-16] = 1e200
-    r = np.where(r > 1e-16, r, 1e200)
-    ewovrl = .5 * np.einsum('i,j,Lij->', charges, charges, erfc(ew_eta *  r) / r)
-    return ewovrl
-
 energy_nuc = ewald
 
 def make_kpts(cell, nks, wrap_around=WRAP_AROUND, with_gamma_point=WITH_GAMMA,
@@ -918,6 +903,7 @@ def get_uniform_grids(cell, mesh=None, **kwargs):
         mesh = [2*n+1 for n in kwargs['gs']]
     mesh = numpy.asarray(mesh, dtype=numpy.double)
     qv = lib.cartesian_prod([numpy.arange(x) for x in mesh])
+    # tracing grid points is very expensive
     a_frac = np.einsum('i,ij->ij', 1./mesh, cell.lattice_vectors())
     coords = np.dot(qv, a_frac)
     return coords
@@ -1536,7 +1522,7 @@ class Cell(mole.Mole):
             a = self.a.replace(';',' ').replace(',',' ').replace('\n',' ')
             a = numpy.asarray([float(x) for x in a.split()]).reshape(3,3)
         else:
-            a = np.asarray(self.a, dtype=np.double)
+            a = numpy.asarray(self.a, dtype=numpy.double)
         if isinstance(self.unit, (str, unicode)):
             if self.unit.startswith(('B','b','au','AU')):
                 return a
@@ -1637,7 +1623,6 @@ class Cell(mole.Mole):
     get_SI = get_SI
 
     ewald = ewald
-    _ewald_sr = _ewald_sr
     energy_nuc = ewald
 
     gen_uniform_grids = get_uniform_grids = get_uniform_grids

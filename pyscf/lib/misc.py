@@ -1065,12 +1065,9 @@ def stop_grad(x):
     # only works for jax arrays
     numpy_backend = getattr(__config__, "pyscf_numpy_backend", "pyscf")
     ad = getattr(__config__, "pyscfad", False)
-    if numpy_backend.upper() in ("JAX", "PYSCFAD"):
+    if numpy_backend.upper() in ("JAX", "PYSCFAD") or ad:
         import jax
         return jax.lax.stop_gradient(x)
-    elif ad:
-        import pyscfad.lib
-        return pyscfad.lib.stop_grad(x)
     else:
         return x
 

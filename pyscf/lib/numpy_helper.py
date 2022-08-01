@@ -978,7 +978,7 @@ def direct_sum(subscripts, *operands):
     0.0
     '''
 
-    from pyscf import numpy as np
+    #from pyscf import numpy as np
 
     def sign_and_symbs(subscript):
         ''' sign list and notation list'''
@@ -1003,12 +1003,12 @@ def direct_sum(subscripts, *operands):
     assert(len(src) == len(operands))
 
     for i, symb in enumerate(src):
-        op = np.asarray(operands[i])
+        op = numpy.asarray(operands[i])
         assert(len(symb) == op.ndim)
         unisymb = set(symb)
         if len(unisymb) != len(symb):
             unisymb = ''.join(unisymb)
-            op = np.einsum('->'.join((symb, unisymb)), op)
+            op = numpy.einsum('->'.join((symb, unisymb)), op)
             src[i] = unisymb
         if i == 0:
             if sign[i] == '+':
@@ -1020,7 +1020,7 @@ def direct_sum(subscripts, *operands):
         else:
             out = out.reshape(out.shape+(1,)*op.ndim) - op
 
-    out = np.einsum('->'.join((''.join(src), dest)), out)
+    out = numpy.einsum('->'.join((''.join(src), dest)), out)
     #out.flags.writeable = True  # old numpy has this issue
     return out
 

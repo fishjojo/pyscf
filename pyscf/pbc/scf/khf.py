@@ -734,7 +734,7 @@ class KSCF(pbchf.SCF):
         if self.chkfile:
             mol_hf.SCF.dump_chk(self, envs)
             with h5py.File(self.chkfile, 'a') as fh5:
-                fh5['scf/kpts'] = self.kpts
+                fh5['scf/kpts'] = stop_grad(self.kpts)
         return self
 
     def mulliken_meta(self, cell=None, dm=None, verbose=logger.DEBUG,

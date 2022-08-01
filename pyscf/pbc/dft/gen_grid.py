@@ -22,6 +22,7 @@ from pyscf import __config__
 from pyscf import numpy as np
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.lib import stop_grad
 from pyscf import dft
 from pyscf.pbc.gto.cell import get_uniform_grids, gen_uniform_grids
 from pyscf.dft.gen_grid import (sg1_prune, nwchem_prune, treutler_prune,
@@ -38,7 +39,7 @@ def make_mask(cell, coords, relativity=0, shls_slice=None, verbose=None):
     For given shell ID and block ID, the value of the extended mask array
     means the number of images in Ls that does not vanish.
     '''
-    coords = numpy.asarray(coords, order='F')
+    coords = numpy.asarray(stop_grad(coords), order='F')
     natm = ctypes.c_int(cell._atm.shape[0])
     nbas = ctypes.c_int(cell.nbas)
     ngrids = len(coords)
@@ -46,7 +47,7 @@ def make_mask(cell, coords, relativity=0, shls_slice=None, verbose=None):
         shls_slice = (0, cell.nbas)
     assert(shls_slice == (0, cell.nbas))
 
-    Ls = cell.get_lattice_Ls(dimension=3)
+    Ls = numpy.asarray(stop_grad(cell.get_lattice_Ls(dimension=3)))
     Ls = Ls[numpy.argsort(lib.norm(Ls, axis=1))]
 
     non0tab = numpy.empty(((ngrids+BLKSIZE-1)//BLKSIZE, cell.nbas),
@@ -105,7 +106,7 @@ class UniformGrids(lib.StreamObject):
         coords = self.coords
         weights = self.weights
 
-        if with_non0tab and not PYSCFAD:
+        if with_non0tab:# and not PYSCFAD:
             self.non0tab = self.make_mask(cell, coords)
         else:
             self.non0tab = None
