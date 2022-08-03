@@ -35,20 +35,29 @@ from pyscf.pbc.lib import kpts_helper
 import pyscf.pbc.tools.make_test_cell as make_test_cell
 
 
-cell = pbcgto.Cell()
-cell.atom = '''
-He 0.000000000000   0.000000000000   0.000000000000
-He 1.685068664391   1.685068664391   1.685068664391
-'''
-cell.basis = [[0, (1., 1.)], [0, (.5, 1.)]]
-cell.a = '''
-0.000000000, 3.370137329, 3.370137329
-3.370137329, 0.000000000, 3.370137329
-3.370137329, 3.370137329, 0.000000000'''
-cell.unit = 'B'
-#cell.verbose = 7
-cell.output = '/dev/null'
-cell.build()
+def setUpModule():
+    global cell, rand_kmf
+    cell = pbcgto.Cell()
+    cell.atom = '''
+    He 0.000000000000   0.000000000000   0.000000000000
+    He 1.685068664391   1.685068664391   1.685068664391
+    '''
+    cell.basis = [[0, (1., 1.)], [0, (.5, 1.)]]
+    cell.a = '''
+    0.000000000, 3.370137329, 3.370137329
+    3.370137329, 0.000000000, 3.370137329
+    3.370137329, 3.370137329, 0.000000000'''
+    cell.unit = 'B'
+    #cell.verbose = 7
+    cell.output = '/dev/null'
+    cell.build()
+
+    rand_kmf = make_rand_kmf()
+
+def tearDownModule():
+    global cell, rand_kmf
+    cell.stdout.close()
+    del cell, rand_kmf
 
 
 # Helper functions
@@ -130,8 +139,6 @@ def make_rand_kmf():
     kmf.mo_coeff = (np.random.random((3, nmo, nmo)) +
                     np.random.random((3, nmo, nmo)) * 1j - .5 - .5j)
     return kmf
-
-rand_kmf = make_rand_kmf()
 
 
 #TODO Delete me; these functions were used to check the changes on
@@ -664,7 +671,7 @@ class KnownValues(unittest.TestCase):
 
         #mymp = pbmp.KMP2(kmf)
         #ekmp2, _ = mymp.kernel()
-        #print("KMP2 corr energy (per unit cell) = ", ekmp2)
+        #print("KMP2 corr energy (per cell) = ", ekmp2)
 
         mycc = pbcc.KGCCSD(kmf)
         ekccsd, t1, t2 = mycc.kernel()
@@ -692,7 +699,7 @@ class KnownValues(unittest.TestCase):
 
         ##mysmp = pbmp.KMP2(mf)
         ##emp2, _ = mysmp.kernel()
-        ##print("MP2 corr energy (per unit cell) = ", emp2 / np.prod(nmp))
+        ##print("MP2 corr energy (per cell) = ", emp2 / np.prod(nmp))
 
         myscc = pbcc.KGCCSD(mf)
         eccsd, _, _ = myscc.kernel()
@@ -748,7 +755,7 @@ class KnownValues(unittest.TestCase):
 
         #mymp = pbmp.KMP2(kmf)
         #ekmp2, _ = mymp.kernel()
-        #print("KMP2 corr energy (per unit cell) = ", ekmp2)
+        #print("KMP2 corr energy (per cell) = ", ekmp2)
 
         # By not applying a level-shift, one gets a different initial CCSD answer.
         # One can check however that the t1/t2 from level-shifting are a solution
@@ -780,7 +787,7 @@ class KnownValues(unittest.TestCase):
 
         #mysmp = pbmp.KMP2(mf)
         #emp2, _ = mysmp.kernel()
-        #print("MP2 corr energy (per unit cell) = ", emp2 / np.prod(nmp))
+        #print("MP2 corr energy (per cell) = ", emp2 / np.prod(nmp))
 
         myscc = pbcc.KGCCSD(mf, frozen=[0, 1, 14, 15])
         eccsd, _, _ = myscc.kernel()
