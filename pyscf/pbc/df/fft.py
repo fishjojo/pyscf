@@ -104,7 +104,7 @@ def get_pp(mydf, kpts=None):
     def vppnl_by_k(kpt):
         Gk = Gv + kpt
         G_rad = lib.norm(Gk, axis=1)
-        aokG = ft_ao.ft_ao(cell, Gv, kpt=kpt) * (1/cell.vol)**.5
+        aokG = ft_ao.ft_ao(cell, Gv, kpt=kpt) * (1/numpy.asarray(cell.vol))**.5
         vppnl = 0
         for ia in range(cell.natm):
             symb = cell.atom_symbol(ia)

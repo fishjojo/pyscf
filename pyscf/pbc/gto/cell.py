@@ -391,6 +391,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
         cpbcopt = lib.c_null_ptr()
 
     Ls = cell1.get_lattice_Ls(rcut=max(cell1.rcut, cell2.rcut))
+    Ls = numpy.asarray(Ls)
     expkL = numpy.asarray(numpy.exp(1j*numpy.dot(kpts_lst, Ls.T)), order='C')
     drv = libpbc.PBCnr2c_drv
 

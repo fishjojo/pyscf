@@ -750,7 +750,7 @@ class SCF(mol_hf.SCF):
         if self.chkfile:
             mol_hf.SCF.dump_chk(self, envs)
             with h5py.File(self.chkfile, 'a') as fh5:
-                fh5['scf/kpt'] = self.kpt
+                fh5['scf/kpt'] = stop_grad(self.kpt)
         return self
 
     def _is_mem_enough(self):

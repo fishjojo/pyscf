@@ -132,6 +132,7 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
     else:
         Ls = cell.get_lattice_Ls(dimension=3)
     Ls = Ls[numpy.argsort(lib.norm(Ls, axis=1))]
+    Ls = numpy.asarray(Ls)
     expLk = numpy.exp(1j * numpy.asarray(numpy.dot(Ls, kpts_lst.T), order='C'))
     rcut = _estimate_rcut(cell)
 

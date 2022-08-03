@@ -62,7 +62,8 @@ def kernel(mp, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2, verbos
             gi = np.asarray(eris.ovov[i*nvir:(i+1)*nvir])
 
         gi = gi.reshape(nvir,nocc,nvir).transpose(1,0,2)
-        t2i = gi.conj()/lib.direct_sum('jb+a->jba', eia, eia[i])
+        #t2i = gi.conj()/lib.direct_sum('jb+a->jba', eia, eia[i])
+        t2i = gi.conj()/(eia[:,:,None] + eia[i][None,None,:])
         emp2 += np.einsum('jab,jab', t2i, gi) * 2
         emp2 -= np.einsum('jab,jba', t2i, gi)
         if with_t2:
@@ -136,7 +137,8 @@ def update_amps(mp, t2, eris):
     eris_ovov = None
 
     eia = mo_e_o[:,None] - mo_e_v
-    t2new /= lib.direct_sum('ia,jb->ijab', eia, eia)
+    #t2new /= lib.direct_sum('ia,jb->ijab', eia, eia)
+    t2new /= eia[:,None,:,None] + eia[None,:,None,:]
     return t2new
 
 
