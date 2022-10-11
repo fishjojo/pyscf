@@ -22,6 +22,7 @@ from pyscf import lib
 from pyscf.gto import moleintor
 from pyscf.gto.eval_gto import _get_intor_and_comp, BLKSIZE
 from pyscf.pbc.gto import _pbcintor
+from pyscf.pbc.tools import pbc as pbctools
 from pyscf import __config__
 
 EXTRA_PREC = getattr(__config__, 'pbc_gto_eval_gto_extra_precision', 1e-2)
@@ -30,7 +31,7 @@ libpbc = _pbcintor.libpbc
 
 def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
              shls_slice=None, non0tab=None, ao_loc=None, cutoff=None,
-             out=None, Ls=None, rcut=None):
+             out=None, Ls=None, rcut=None, kderiv=0):
     r'''Evaluate PBC-AO function value on the given grids,
 
     Args:
@@ -111,6 +112,7 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
         kpts_lst = numpy.reshape(kpts, (-1,3))
     nkpts = len(kpts_lst)
     ngrids = len(coords)
+    kcomp = (kderiv+1)*(kderiv+2)//2
 
     if non0tab is None:
         non0tab = numpy.empty(((ngrids+BLKSIZE-1)//BLKSIZE, nbas),
@@ -126,7 +128,7 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
     sh0, sh1 = shls_slice
     nao = ao_loc[sh1] - ao_loc[sh0]
 
-    out = numpy.empty((nkpts,comp,nao,ngrids), dtype=numpy.complex128)
+    out = numpy.empty((nkpts*kcomp,comp,nao,ngrids), dtype=numpy.complex128)
     coords = numpy.asarray(coords, order='F')
 
     # For atoms near the boundary of the cell, it is necessary (even in low-
@@ -137,7 +139,7 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
         else:
             Ls = cell.get_lattice_Ls(dimension=3)
         Ls = Ls[numpy.argsort(lib.norm(Ls, axis=1))]
-    expLk = numpy.exp(1j * numpy.asarray(numpy.dot(Ls, kpts_lst.T), order='C'))
+    expLk = numpy.asarray(pbctools.get_expkL(kpts_lst.T, Ls, kderiv).T, order='C')
     if rcut is None:
         rcut = _estimate_rcut(cell)
 
@@ -146,7 +148,7 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
         drv(ctypes.c_int(ngrids),
             (ctypes.c_int*2)(*shls_slice), ao_loc.ctypes.data_as(ctypes.c_void_p),
             Ls.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(len(Ls)),
-            expLk.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(nkpts),
+            expLk.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(nkpts*kcomp),
             out.ctypes.data_as(ctypes.c_void_p),
             coords.ctypes.data_as(ctypes.c_void_p),
             rcut.ctypes.data_as(ctypes.c_void_p),
@@ -155,14 +157,16 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
             bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(nbas),
             env.ctypes.data_as(ctypes.c_void_p))
 
+    if kderiv > 0:
+        out = out.reshape(nkpts,kcomp,comp,nao,ngrids)
     ao_kpts = []
     for k, kpt in enumerate(kpts_lst):
         v = out[k]
-        if abs(kpt).sum() < 1e-9:
+        if abs(kpt).sum() < 1e-9 and kderiv == 0:
             v = numpy.asarray(v.real, order='C')
-        v = v.transpose(0,2,1)
+        v = numpy.moveaxis(v, -1, -2)
         if comp == 1:
-            v = v[0]
+            v = numpy.squeeze(v, axis=-3)
         ao_kpts.append(v)
 
     if kpts is None or numpy.shape(kpts) == (3,):  # A single k-point

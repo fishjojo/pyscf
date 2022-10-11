@@ -216,12 +216,12 @@ def _int_nuc_vloc(mydf, nuccell, kpts, intor='int3c2e', aosym='s2', comp=1):
     dfbuilder = _IntNucBuilder(mydf.cell, kpts)
     return dfbuilder._int_nuc_vloc(nuccell, intor, aosym)
 
-def get_pp(mydf, kpts=None):
+def get_pp(mydf, kpts=None, kderiv=0):
     '''Get the periodic pseudotential nuc-el AO matrix, with G=0 removed.
     '''
     t0 = (logger.process_clock(), logger.perf_counter())
     dfbuilder = _IntNucBuilder(mydf.cell, kpts)
-    vpp = dfbuilder.get_pp(mydf.mesh)
+    vpp = dfbuilder.get_pp(mydf.mesh, kderiv)
     if kpts is None or numpy.shape(kpts) == (3,):
         vpp = vpp[0]
     logger.timer(mydf, 'get_pp', *t0)

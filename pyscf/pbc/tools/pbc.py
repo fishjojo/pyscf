@@ -695,3 +695,18 @@ def cutoff_to_gs(a, cutoff):
 def gs_to_cutoff(a, gs):
     '''Deprecated.  Replaced by function mesh_to_cutoff.'''
     return mesh_to_cutoff(a, [2*n+1 for n in gs])
+
+def get_expkL(kpts, Ls, kderiv=0):
+    kpts = kpts.reshape(-1,3)
+    Ls = Ls.reshape(-1,3)
+    expkL = np.exp(1j*np.dot(kpts, Ls.T))
+    if kderiv > 0:
+        if kderiv == 1:
+            expkL = 1j * np.einsum('kl,lx->kxl', expkL, Ls)
+        elif kderiv == 2:
+            LL = lib.pack_tril(np.einsum('lx,ly->lxy', Ls, Ls))
+            expkL = -np.einsum('kl,lx->kxl', expkL, LL)
+        else:
+            raise NotImplementedError
+    expkL = expkL.reshape(-1,len(Ls))
+    return expkL

@@ -59,5 +59,8 @@ typedef struct {
         int *gs;
 
         int (*intor)();
+
+        // for k derivatives
+        int kcomp;
 } BVKEnvs;
 #endif

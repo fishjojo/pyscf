@@ -102,7 +102,7 @@ def ft_ao(mol, Gv, shls_slice=None, b=None,
 
 
 def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
-                  return_complex=False, verbose=None):
+                  return_complex=False, verbose=None, kderiv=0):
     r'''
     Generate the analytical fourier transform kernel for AO products
 
@@ -110,6 +110,7 @@ def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
     '''
     log = logger.new_logger(supmol)
     cput0 = logger.process_clock(), logger.perf_counter()
+    kcomp = (kderiv+1)*(kderiv+2)//2
     rs_cell = supmol.rs_cell
     assert isinstance(rs_cell, _RangeSeparatedCell)
 
@@ -144,7 +145,7 @@ def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
         kptjs = np.asarray(kptjs, order='C').reshape(-1,3)
         nkpts = len(kptjs)
 
-        expLk = np.exp(1j*np.dot(supmol.bvkmesh_Ls, kptjs.T))
+        expLk = pbctools.get_expkL(kptjs, supmol.bvkmesh_Ls, kderiv).T
         expLkR = np.asarray(expLk.real, order='C')
         expLkI = np.asarray(expLk.imag, order='C')
         expLk = None
@@ -156,7 +157,7 @@ def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
             shls_slice = (0, nbasp, 0, nbasp)
         ni = cell0_ao_loc[shls_slice[1]] - cell0_ao_loc[shls_slice[0]]
         nj = cell0_ao_loc[shls_slice[3]] - cell0_ao_loc[shls_slice[2]]
-        shape = (nkpts, comp, ni, nj, nGv)
+        shape = (nkpts*kcomp, comp, ni, nj, nGv)
 
         aosym = aosym[:2]
         if aosym == 's1hermi':
@@ -169,7 +170,7 @@ def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
             i0 = cell0_ao_loc[shls_slice[0]]
             i1 = cell0_ao_loc[shls_slice[1]]
             nij = i1*(i1+1)//2 - i0*(i0+1)//2
-            shape = (nkpts, comp, nij, nGv)
+            shape = (nkpts*kcomp, comp, nij, nGv)
 
         if gxyz is None or b is None or Gvbase is None or (abs(q).sum() > 1e-9):
             p_gxyzT = lib.c_null_ptr()
@@ -190,7 +191,7 @@ def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
         drv = libpbc.PBC_ft_bvk_drv
         cintor = getattr(libpbc, rs_cell._add_suffix(intor))
         eval_gz = getattr(libpbc, eval_gz)
-        if nkpts == 1:
+        if nkpts == 1 and kderiv == 0:
             fill = getattr(libpbc, 'PBC_ft_bvk_nk1'+aosym)
         else:
             fill = getattr(libpbc, 'PBC_ft_bvk_k'+aosym)
@@ -206,7 +207,7 @@ def gen_ft_kernel(supmol, aosym='s1', intor='GTO_ft_ovlp', comp=1,
             expLkR.ctypes.data_as(ctypes.c_void_p),
             expLkI.ctypes.data_as(ctypes.c_void_p),
             ctypes.c_int(bvk_ncells), ctypes.c_int(nimgs),
-            ctypes.c_int(nkpts), ctypes.c_int(nbasp), ctypes.c_int(comp),
+            ctypes.c_int(nkpts*kcomp), ctypes.c_int(nbasp), ctypes.c_int(comp),
             supmol.sh_loc.ctypes.data_as(ctypes.c_void_p),
             cell0_ao_loc.ctypes.data_as(ctypes.c_void_p),
             (ctypes.c_int*4)(*shls_slice),
@@ -405,7 +406,7 @@ class _RangeSeparatedCell(pbcgto.Cell):
     def merge_diffused_block(self, aosym='s1'):
         '''For AO pair that are evaluated in blocks with using the basis
         partitioning self.compact_basis_cell() and self.smooth_basis_cell(),
-        merge the DD block into the CC, CD, DC blocks (D ~ compact basis,
+        merge the DD block into the CC, CD, DC blocks (C ~ compact basis,
         D ~ diffused basis)
         '''
         ao_loc = self.ref_cell.ao_loc

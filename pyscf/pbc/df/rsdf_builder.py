@@ -433,7 +433,7 @@ class _RSGDFBuilder(_Int3cBuilder):
 
     def outcore_auxe2(self, cderi_file, intor='int3c2e', aosym='s2', comp=None,
                       j_only=False, dataname='j3c', shls_slice=None,
-                      fft_dd_block=None):
+                      fft_dd_block=None, kderiv=0):
         r'''The SR part of 3-center integrals (ij|L) with double lattice sum.
 
         Kwargs:
@@ -460,6 +460,7 @@ class _RSGDFBuilder(_Int3cBuilder):
         naux = auxcell.nao
         kpts = self.kpts
         nkpts = kpts.shape[0]
+        kcomp = (kderiv+1)*(kderiv+2)//2
 
         gamma_point_only = is_zero(kpts)
         if gamma_point_only:
@@ -473,12 +474,12 @@ class _RSGDFBuilder(_Int3cBuilder):
 
         if fft_dd_block:
             self._outcore_dd_block(fswap, intor, aosym, comp, j_only,
-                                   dataname, shls_slice)
+                                   dataname, shls_slice, kderiv=kderiv)
 
         # int3c may be the regular int3c2e, LR-int3c2e or SR-int3c2e, depending
         # on how self.supmol is initialized
         int3c = self.gen_int3c_kernel(intor, aosym, comp, j_only,
-                                      rs_auxcell=self.rs_auxcell)
+                                      rs_auxcell=self.rs_auxcell, kderiv=kderiv)
 
         if shls_slice is None:
             shls_slice = (0, cell.nbas, 0, cell.nbas, 0, auxcell.nbas)
@@ -501,11 +502,13 @@ class _RSGDFBuilder(_Int3cBuilder):
 
         # TODO: shape = (comp, nao_pair, naux)
         shape = (nao_pair, naux)
+        if kderiv > 0:
+            shape = (kcomp, nao_pair, naux)
         if j_only or nkpts == 1:
             for k in range(nkpts):
                 fswap.create_dataset(f'{dataname}R/{k*nkpts+k}', shape, 'f8')
                 # exclude imaginary part for gamma point
-                if not is_zero(kpts[k]):
+                if not is_zero(kpts[k]) or kderiv > 0:
                     fswap.create_dataset(f'{dataname}I/{k*nkpts+k}', shape, 'f8')
             nkpts_ij = nkpts
             kikj_idx = [k*nkpts+k for k in range(nkpts)]
@@ -515,7 +518,7 @@ class _RSGDFBuilder(_Int3cBuilder):
                     fswap.create_dataset(f'{dataname}R/{ki*nkpts+kj}', shape, 'f8')
                     fswap.create_dataset(f'{dataname}I/{ki*nkpts+kj}', shape, 'f8')
                 # exclude imaginary part for gamma point
-                if is_zero(kpts[ki]):
+                if is_zero(kpts[ki]) and kderiv == 0:
                     del fswap[f'{dataname}I/{ki*nkpts+ki}']
             nkpts_ij = nkpts * nkpts
             kikj_idx = range(nkpts_ij)
@@ -533,7 +536,7 @@ class _RSGDFBuilder(_Int3cBuilder):
 
         # split the 3-center tensor (nkpts_ij, i, j, aux) along shell i.
         # plus 1 to ensure the intermediates in libpbc do not overflow
-        buflen = min(max(int(max_memory*.9e6/16/naux/(nkpts_ij+1)), 1), nao_pair)
+        buflen = min(max(int(max_memory*.9e6/16/naux/(nkpts_ij*kcomp+1)), 1), nao_pair)
         # lower triangle part
         sh_ranges = _guess_shell_ranges(cell, buflen, aosym, start=ish0, stop=ish1)
         max_buflen = max([x[2] for x in sh_ranges])
@@ -541,7 +544,7 @@ class _RSGDFBuilder(_Int3cBuilder):
             log.warn('memory usage of outcore_auxe2 may be %.2f times over max_memory',
                      (max_buflen/buflen - 1))
 
-        bufR = np.empty((nkpts_ij, comp, max_buflen, naux))
+        bufR = np.empty((nkpts_ij*kcomp, comp, max_buflen, naux))
         bufI = np.empty_like(bufR)
         cpu0 = logger.process_clock(), logger.perf_counter()
         nsteps = len(sh_ranges)
@@ -552,6 +555,9 @@ class _RSGDFBuilder(_Int3cBuilder):
             else:
                 shls_slice = (sh_start, sh_end, jsh0, jsh1, ksh0, ksh1)
             outR, outI = int3c(shls_slice, bufR, bufI)
+            if kderiv > 0:
+                outR = outR.reshape(nkpts_ij,kcomp,-1,naux)
+                outI = outI.reshape(nkpts_ij,kcomp,-1,naux)
             log.debug2('      step [%d/%d], shell range [%d:%d], len(buf) = %d',
                        istep+1, nsteps, sh_start, sh_end, nrow)
             cpu0 = log.timer_debug1(f'outcore_auxe2 [{istep+1}/{nsteps}]', *cpu0)
@@ -559,41 +565,67 @@ class _RSGDFBuilder(_Int3cBuilder):
             shls_slice = (sh_start, sh_end, 0, cell.nbas)
             row0, row1 = row1, row1 + nrow
             if merge_dd is not None:
-                if gamma_point_only:
+                if gamma_point_only and kderiv == 0:
                     merge_dd(outR[0], fswap[f'{dataname}R-dd/0'], shls_slice)
                 elif j_only or nkpts == 1:
                     for k in range(nkpts):
-                        merge_dd(outR[k], fswap[f'{dataname}R-dd/{k*nkpts+k}'], shls_slice)
-                        merge_dd(outI[k], fswap[f'{dataname}I-dd/{k*nkpts+k}'], shls_slice)
+                        if kderiv > 0:
+                            for kc in range(kcomp):
+                                merge_dd(outR[k,kc], fswap[f'{dataname}R-dd/{k*nkpts+k}'][kc], shls_slice)
+                                merge_dd(outI[k,kc], fswap[f'{dataname}I-dd/{k*nkpts+k}'][kc], shls_slice)
+                        else:
+                            merge_dd(outR[k], fswap[f'{dataname}R-dd/{k*nkpts+k}'], shls_slice)
+                            merge_dd(outI[k], fswap[f'{dataname}I-dd/{k*nkpts+k}'], shls_slice)
                 else:
                     for k, k_conj in kpt_ij_pairs:
                         kpt_ij_idx = np.where(uniq_inverse == k)[0]
                         if k_conj is None or k == k_conj:
                             for ij_idx in kpt_ij_idx:
-                                merge_dd(outR[ij_idx], fswap[f'{dataname}R-dd/{ij_idx}'], shls_slice)
-                                merge_dd(outI[ij_idx], fswap[f'{dataname}I-dd/{ij_idx}'], shls_slice)
+                                if kderiv > 0:
+                                    for kc in range(kcomp):
+                                        merge_dd(outR[ij_idx,kc], fswap[f'{dataname}R-dd/{ij_idx}'][kc], shls_slice)
+                                        merge_dd(outI[ij_idx,kc], fswap[f'{dataname}I-dd/{ij_idx}'][kc], shls_slice)
+                                else:
+                                    merge_dd(outR[ij_idx], fswap[f'{dataname}R-dd/{ij_idx}'], shls_slice)
+                                    merge_dd(outI[ij_idx], fswap[f'{dataname}I-dd/{ij_idx}'], shls_slice)
                         else:
                             ki_lst = kpt_ij_idx // nkpts
                             kj_lst = kpt_ij_idx % nkpts
                             kpt_ji_idx = kj_lst * nkpts + ki_lst
                             for ij_idx, ji_idx in zip(kpt_ij_idx, kpt_ji_idx):
-                                j3cR_dd = np.asarray(fswap[f'{dataname}R-dd/{ij_idx}'])
-                                merge_dd(outR[ij_idx], j3cR_dd, shls_slice)
-                                merge_dd(outR[ji_idx], j3cR_dd.transpose(1,0,2), shls_slice)
-                                j3cI_dd = np.asarray(fswap[f'{dataname}I-dd/{ij_idx}'])
-                                merge_dd(outI[ij_idx], j3cI_dd, shls_slice)
-                                merge_dd(outI[ji_idx],-j3cI_dd.transpose(1,0,2), shls_slice)
+                                if kderiv > 0:
+                                    for kc in range(kcomp):
+                                        j3cR_dd = np.asarray(fswap[f'{dataname}R-dd/{ij_idx}'][kc])
+                                        merge_dd(outR[ij_idx][kc], j3cR_dd, shls_slice)
+                                        merge_dd(outR[ji_idx][kc], j3cR_dd.transpose(1,0,2), shls_slice)
+                                        j3cI_dd = np.asarray(fswap[f'{dataname}I-dd/{ij_idx}'][kc])
+                                        merge_dd(outI[ij_idx][kc], j3cI_dd, shls_slice)
+                                        merge_dd(outI[ji_idx][kc],-j3cI_dd.transpose(1,0,2), shls_slice)
+                                else:
+                                    j3cR_dd = np.asarray(fswap[f'{dataname}R-dd/{ij_idx}'])
+                                    merge_dd(outR[ij_idx], j3cR_dd, shls_slice)
+                                    merge_dd(outR[ji_idx], j3cR_dd.transpose(1,0,2), shls_slice)
+                                    j3cI_dd = np.asarray(fswap[f'{dataname}I-dd/{ij_idx}'])
+                                    merge_dd(outI[ij_idx], j3cI_dd, shls_slice)
+                                    merge_dd(outI[ji_idx],-j3cI_dd.transpose(1,0,2), shls_slice)
 
             for k, kk_idx in enumerate(kikj_idx):
-                fswap[f'{dataname}R/{kk_idx}'][row0:row1] = outR[k]
+                if kderiv > 0:
+                    fswap[f'{dataname}R/{kk_idx}'][:,row0:row1] = outR[k]
+                else:
+                    fswap[f'{dataname}R/{kk_idx}'][row0:row1] = outR[k]
                 if f'{dataname}I/{kk_idx}' in fswap:
-                    fswap[f'{dataname}I/{kk_idx}'][row0:row1] = outI[k]
+                    if kderiv > 0:
+                        fswap[f'{dataname}I/{kk_idx}'][:,row0:row1] = outI[k]
+                    else:
+                        fswap[f'{dataname}I/{kk_idx}'][row0:row1] = outI[k]
             outR = outI = None
         bufR = bufI = None
         return fswap
 
     def _outcore_dd_block(self, h5group, intor='int3c2e', aosym='s2', comp=None,
-                          j_only=False, dataname='j3c', shls_slice=None):
+                          j_only=False, dataname='j3c', shls_slice=None,
+                          kderiv=0):
         '''
         The block of smooth AO basis in i and j of (ij|L) with full Coulomb kernel
         '''
@@ -617,6 +649,9 @@ class _RSGDFBuilder(_Int3cBuilder):
 
         mesh = cell_d.mesh
         aoR_ks, aoI_ks = _eval_gto(cell_d, mesh, kpts)
+        aoR_ks_kderiv = aoI_ks_kderiv = None
+        if kderiv > 0:
+            aoR_ks_kderiv, aoI_ks_kderiv = _eval_gto(cell_d, mesh, kpts, kderiv=kderiv)
         coords = cell_d.get_uniform_grids(mesh)
 
         # TODO check if max_memory is enough
@@ -666,6 +701,11 @@ class _RSGDFBuilder(_Int3cBuilder):
                 ctypes.c_int(nao), ctypes.c_int(nao), ctypes.c_int(ngrids))
             return aopair
 
+        def join_R_kderiv(ki, kj):
+            aopair = np.einsum('ig,xjg->xijg', aoR_ks[ki], aoR_ks_kderiv[kj])
+            aopair+= np.einsum('ig,xjg->xijg', aoI_ks[ki], aoI_ks_kderiv[kj])
+            return aopair
+
         def join_I(ki, kj):
             #:aopair = np.einsum('ig,jg->ijg', aoR_ks[ki], aoI_ks[kj])
             #:aopair-= np.einsum('ig,jg->ijg', aoI_ks[ki], aoR_ks[kj])
@@ -679,10 +719,15 @@ class _RSGDFBuilder(_Int3cBuilder):
                 ctypes.c_int(nao), ctypes.c_int(nao), ctypes.c_int(ngrids))
             return aopair
 
+        def join_I_kderiv(ki, kj):
+            aopair = np.einsum('ig,xjg->xijg', aoR_ks[ki], aoI_ks_kderiv[kj])
+            aopair-= np.einsum('ig,xjg->xijg', aoI_ks[ki], aoR_ks_kderiv[kj])
+            return aopair
+
         gamma_point_only = is_zero(kpts)
         if j_only or nkpts == 1:
             Vaux = np.asarray(get_Vaux(np.zeros(3)).real, order='C')
-            if gamma_point_only:
+            if gamma_point_only and kderiv == 0:
                 #:aopair = np.einsum('ig,jg->ijg', aoR_ks[0], aoR_ks[0])
                 aopair = np.empty((nao**2, ngrids))
                 libpbc.PBC_djoin_NN_s1(
@@ -695,25 +740,30 @@ class _RSGDFBuilder(_Int3cBuilder):
                 aopair = j3c = None
 
             else:
-                #:for k in range(nkpts):
-                #:    h5group[f'{dataname}R-dd/{k*nkpts+k}'] = lib.ddot(join_R(k, k), Vaux.T)
-                #:    h5group[f'{dataname}I-dd/{k*nkpts+k}'] = lib.ddot(join_I(k, k), Vaux.T)
-                k_idx = np.arange(nkpts, dtype=np.int32)
-                kpt_ij_idx = k_idx * nkpts + k_idx
-                j3cR = np.empty((nkpts, nao, nao, naux))
-                j3cI = np.empty((nkpts, nao, nao, naux))
-                libpbc.PBC_kzdot_CNN_s1(j3cR.ctypes.data_as(ctypes.c_void_p),
-                                        j3cI.ctypes.data_as(ctypes.c_void_p),
-                                        aoR_ks.ctypes.data_as(ctypes.c_void_p),
-                                        aoI_ks.ctypes.data_as(ctypes.c_void_p),
-                                        Vaux.ctypes.data_as(ctypes.c_void_p), lib.c_null_ptr(),
-                                        kpt_ij_idx.ctypes.data_as(ctypes.c_void_p),
-                                        ctypes.c_int(nao), ctypes.c_int(nao),
-                                        ctypes.c_int(naux), ctypes.c_int(ngrids),
-                                        ctypes.c_int(nkpts), ctypes.c_int(nkpts))
-                for k, kk_idx in enumerate(kpt_ij_idx):
-                    h5group[f'{dataname}R-dd/{kk_idx}'] = j3cR[k]
-                    h5group[f'{dataname}I-dd/{kk_idx}'] = j3cI[k]
+                if kderiv > 0:
+                    for k in range(nkpts):
+                        h5group[f'{dataname}R-dd/{k*nkpts+k}'] = np.einsum('xijg,gk->xijk',join_R_kderiv(k, k), Vaux.T)
+                        h5group[f'{dataname}I-dd/{k*nkpts+k}'] = np.einsum('xijg,gk->xijk',join_I_kderiv(k, k), Vaux.T)
+                else:
+                    #:for k in range(nkpts):
+                    #:    h5group[f'{dataname}R-dd/{k*nkpts+k}'] = lib.ddot(join_R(k, k), Vaux.T)
+                    #:    h5group[f'{dataname}I-dd/{k*nkpts+k}'] = lib.ddot(join_I(k, k), Vaux.T)
+                    k_idx = np.arange(nkpts, dtype=np.int32)
+                    kpt_ij_idx = k_idx * nkpts + k_idx
+                    j3cR = np.empty((nkpts, nao, nao, naux))
+                    j3cI = np.empty((nkpts, nao, nao, naux))
+                    libpbc.PBC_kzdot_CNN_s1(j3cR.ctypes.data_as(ctypes.c_void_p),
+                                            j3cI.ctypes.data_as(ctypes.c_void_p),
+                                            aoR_ks.ctypes.data_as(ctypes.c_void_p),
+                                            aoI_ks.ctypes.data_as(ctypes.c_void_p),
+                                            Vaux.ctypes.data_as(ctypes.c_void_p), lib.c_null_ptr(),
+                                            kpt_ij_idx.ctypes.data_as(ctypes.c_void_p),
+                                            ctypes.c_int(nao), ctypes.c_int(nao),
+                                            ctypes.c_int(naux), ctypes.c_int(ngrids),
+                                            ctypes.c_int(nkpts), ctypes.c_int(nkpts))
+                    for k, kk_idx in enumerate(kpt_ij_idx):
+                        h5group[f'{dataname}R-dd/{kk_idx}'] = j3cR[k]
+                        h5group[f'{dataname}I-dd/{kk_idx}'] = j3cI[k]
 
         else:
             uniq_kpts, uniq_index, uniq_inverse = unique_with_wrap_around(
@@ -730,31 +780,46 @@ class _RSGDFBuilder(_Int3cBuilder):
                 VauxR = np.asarray(Vaux.real, order='C')
                 VauxI = np.asarray(Vaux.imag, order='C')
                 Vaux = None
-                #:for kk_idx in kpt_ij_idx:
-                #:    ki = kk_idx // nkpts
-                #:    kj = kk_idx % nkpts
-                #:    aopair = join_R(ki, kj, exp(-i*k dot r))
-                #:    j3cR = lib.ddot(aopair.reshape(nao**2, ngrids), VauxR.T)
-                #:    j3cI = lib.ddot(aopair.reshape(nao**2, ngrids), VauxI.T)
-                #:    aopair = join_I(ki, kj, exp(-i*k dot r))
-                #:    j3cR = lib.ddot(aopair.reshape(nao**2, ngrids), VauxI.T,-1, j3cR, 1)
-                #:    j3cI = lib.ddot(aopair.reshape(nao**2, ngrids), VauxR.T, 1, j3cI, 1)
-                j3cR = np.empty((nkptij, nao, nao, naux))
-                j3cI = np.empty((nkptij, nao, nao, naux))
-                libpbc.PBC_kzdot_CNN_s1(j3cR.ctypes.data_as(ctypes.c_void_p),
-                                        j3cI.ctypes.data_as(ctypes.c_void_p),
-                                        aoR_ks.ctypes.data_as(ctypes.c_void_p),
-                                        aoI_ks.ctypes.data_as(ctypes.c_void_p),
-                                        VauxR.ctypes.data_as(ctypes.c_void_p),
-                                        VauxI.ctypes.data_as(ctypes.c_void_p),
-                                        kpt_ij_idx.ctypes.data_as(ctypes.c_void_p),
-                                        ctypes.c_int(nao), ctypes.c_int(nao),
-                                        ctypes.c_int(naux), ctypes.c_int(ngrids),
-                                        ctypes.c_int(nkptij), ctypes.c_int(nkpts))
-                for k, kk_idx in enumerate(kpt_ij_idx):
-                    h5group[f'{dataname}R-dd/{kk_idx}'] = j3cR[k]
-                    h5group[f'{dataname}I-dd/{kk_idx}'] = j3cI[k]
-                j3cR = j3cI = VauxR = VauxI = None
+                if kderiv > 0:
+                    # FIXME derivatives of aux basis are ignored
+                    for kk_idx in kpt_ij_idx:
+                        ki = kk_idx // nkpts
+                        kj = kk_idx % nkpts
+                        aopair = join_R_kderiv(ki, kj)
+                        j3cR = np.einsum('xijg,gk', aopair, VauxR.T)
+                        j3cI = np.einsum('xijg,gk', aopair, VauxI.T)
+                        aopair = join_I_kderiv(ki, kj)
+                        j3cR -= np.einsum('xijg,gk', aopair, VauxI.T)
+                        j3cI += np.einsum('xijg,gk', aopair, VauxR.T)
+                        h5group[f'{dataname}R-dd/{kk_idx}'] = j3cR
+                        h5group[f'{dataname}I-dd/{kk_idx}'] = j3cI
+
+                else:
+                    #:for kk_idx in kpt_ij_idx:
+                    #:    ki = kk_idx // nkpts
+                    #:    kj = kk_idx % nkpts
+                    #:    aopair = join_R(ki, kj, exp(-i*k dot r))
+                    #:    j3cR = lib.ddot(aopair.reshape(nao**2, ngrids), VauxR.T)
+                    #:    j3cI = lib.ddot(aopair.reshape(nao**2, ngrids), VauxI.T)
+                    #:    aopair = join_I(ki, kj, exp(-i*k dot r))
+                    #:    j3cR = lib.ddot(aopair.reshape(nao**2, ngrids), VauxI.T,-1, j3cR, 1)
+                    #:    j3cI = lib.ddot(aopair.reshape(nao**2, ngrids), VauxR.T, 1, j3cI, 1)
+                    j3cR = np.empty((nkptij, nao, nao, naux))
+                    j3cI = np.empty((nkptij, nao, nao, naux))
+                    libpbc.PBC_kzdot_CNN_s1(j3cR.ctypes.data_as(ctypes.c_void_p),
+                                            j3cI.ctypes.data_as(ctypes.c_void_p),
+                                            aoR_ks.ctypes.data_as(ctypes.c_void_p),
+                                            aoI_ks.ctypes.data_as(ctypes.c_void_p),
+                                            VauxR.ctypes.data_as(ctypes.c_void_p),
+                                            VauxI.ctypes.data_as(ctypes.c_void_p),
+                                            kpt_ij_idx.ctypes.data_as(ctypes.c_void_p),
+                                            ctypes.c_int(nao), ctypes.c_int(nao),
+                                            ctypes.c_int(naux), ctypes.c_int(ngrids),
+                                            ctypes.c_int(nkptij), ctypes.c_int(nkpts))
+                    for k, kk_idx in enumerate(kpt_ij_idx):
+                        h5group[f'{dataname}R-dd/{kk_idx}'] = j3cR[k]
+                        h5group[f'{dataname}I-dd/{kk_idx}'] = j3cI[k]
+                    j3cR = j3cI = VauxR = VauxI = None
 
     def weighted_ft_ao(self, kpt):
         '''exp(-i*(G + k) dot r) * Coulomb_kernel'''
@@ -843,6 +908,73 @@ class _RSGDFBuilder(_Int3cBuilder):
 
         return load_j3c
 
+    def gen_j3c_kderiv_loader(self, h5group, kpt, kpt_ij_idx, aosym, dataname, kderiv):
+        cell = self.cell
+        naux = self.auxcell.nao
+        vbar = None
+        kcomp = (kderiv+1)*(kderiv+2)//2
+
+        # Explicitly add the G0 contributions here because FT will not be
+        # applied to the j3c integrals for short range integrals.
+        if cell.dimension == 3 and is_zero(kpt):
+            if self.exclude_d_aux:
+                rs_auxcell = self.rs_auxcell
+                aux_chg = _gaussian_int(rs_auxcell)
+                smooth_ao_idx = rs_auxcell.get_ao_type() == ft_ao.SMOOTH_BASIS
+                aux_chg[smooth_ao_idx] = 0
+                aux_chg = rs_auxcell.recontract_1d(aux_chg[:,None]).ravel()
+            else:
+                aux_chg = _gaussian_int(self.auxcell)
+
+            if self.exclude_dd_block:
+                rs_cell = self.rs_cell
+                ovlp = rs_cell.pbc_intor('int1e_ovlp', hermi=1, kpts=self.kpts, kderiv=kderiv)
+                smooth_ao_idx = rs_cell.get_ao_type() == ft_ao.SMOOTH_BASIS
+                for s in ovlp:
+                    s[:,smooth_ao_idx[:,None] & smooth_ao_idx] = 0
+                recontract_2d = rs_cell.recontract(dim=2)
+                tmp1 = []
+                for s in ovlp:
+                    tmp = []
+                    for kc in range(kcomp):
+                        tmp.append(recontract_2d(s[kc]))
+                    tmp1.append(np.asarray(tmp))
+                ovlp = tmp1
+            else:
+                ovlp = cell.pbc_intor('int1e_ovlp', hermi=1, kpts=self.kpts, kderiv=kderiv)
+
+            if aosym == 's2':
+                ovlp = [lib.pack_tril(s) for s in ovlp]
+            else:
+                ovlp = [s.reshape(kcomp,-1) for s in ovlp]
+
+            vbar = np.pi / self.omega**2 / cell.vol * aux_chg
+            vbar_idx = np.where(vbar != 0)[0]
+            if len(vbar_idx) == 0:
+                vbar = None
+            nkpts = len(self.kpts)
+
+        def load_j3c(col0, col1):
+            j3cR = []
+            j3cI = []
+            for kk in kpt_ij_idx:
+                vR = h5group[f'{dataname}R/{kk}'][:,col0:col1].reshape(kcomp, -1, naux)
+                if f'{dataname}I/{kk}' in h5group:
+                    vI = h5group[f'{dataname}I/{kk}'][:,col0:col1].reshape(kcomp, -1, naux)
+                else:
+                    vI = None
+                if vbar is not None:
+                    kj = kk % nkpts
+                    vmod = ovlp[kj][:,col0:col1,None] * vbar[vbar_idx]
+                    vR[:,:,vbar_idx] -= vmod.real
+                    if vI is not None:
+                        vI[:,:,vbar_idx] -= vmod.imag
+                j3cR.append(vR)
+                j3cI.append(vI)
+            return j3cR, j3cI
+
+        return load_j3c
+
     def add_ft_j3c(self, j3c, Gpq, Gaux, p0, p1):
         j3cR, j3cI = j3c
         GauxR = Gaux[0][p0:p1]
@@ -860,6 +992,26 @@ class _RSGDFBuilder(_Int3cBuilder):
                 lib.ddot(GpqI.T, GauxR,  1, j3cI[k], 1)
                 lib.ddot(GpqR.T, GauxI, -1, j3cI[k], 1)
 
+    def add_ft_j3c_kderiv(self, j3c, Gpq, Gaux, p0, p1, kderiv):
+        j3cR, j3cI = j3c
+        nkpts = len(j3cR)
+        kcomp = (kderiv+1)*(kderiv+2)//2
+        GauxR = Gaux[0][p0:p1]
+        GauxI = Gaux[1][p0:p1]
+        nG = p1 - p0
+        GpqR, GpqI = Gpq
+        GpqR = GpqR.reshape(nkpts, kcomp, nG, -1)
+        GpqI = GpqI.reshape(nkpts, kcomp, nG, -1)
+        for k, (GpqR_k, GpqI_k) in enumerate(zip(GpqR, GpqI)):
+            # \sum_G coulG * ints(ij * exp(-i G * r)) * ints(P * exp(i G * r))
+            # = \sum_G FT(ij, G) conj(FT(aux, G)) , where aux
+            # functions |P> are assumed to be real
+            j3cR[k] += np.einsum('xgi,gj->xij', GpqR_k, GauxR)
+            j3cR[k] += np.einsum('xgi,gj->xij', GpqI_k, GauxI)
+            if j3cI[k] is not None:
+                j3cI[k] += np.einsum('xgi,gj->xij', GpqI_k, GauxR)
+                j3cI[k] -= np.einsum('xgi,gj->xij', GpqR_k, GauxI)
+
     def solve_cderi(self, cd_j2c, j3cR, j3cI):
         j2c, j2c_negative, j2ctag = cd_j2c
         if j3cI is None:
@@ -875,6 +1027,25 @@ class _RSGDFBuilder(_Int3cBuilder):
             if j2c_negative is not None:
                 # for low-dimension systems
                 cderi_negative = lib.dot(j2c_negative, j3c)
+        return cderi, cderi_negative
+
+    def solve_cderi_kderiv(self, cd_j2c, j3cR, j3cI):
+        j2c, j2c_negative, j2ctag = cd_j2c
+        if j3cI is None:
+            j3c = j3cR.transpose(0,2,1)
+        else:
+            j3c = (j3cR + j3cI * 1j).transpose(0,2,1)
+
+        cderi_negative = None
+        if j2ctag == 'CD':
+            cderi = [scipy.linalg.solve_triangular(j2c, j3c_kc, lower=True, overwrite_b=True) for j3c_kc in j3c]
+        else:
+            cderi = [lib.dot(j2c, j3c_kc) for j3c_kc in j3c]
+            if j2c_negative is not None:
+                # for low-dimension systems
+                cderi_negative = [lib.dot(j2c_negative, j3c_kc) for j3c_kc in j3c]
+                cderi_negative = np.asarray(cderi_negative)
+        cderi = np.asarray(cderi)
         return cderi, cderi_negative
 
     def gen_uniq_kpts_groups(self, j_only, h5swap):
@@ -940,7 +1111,7 @@ class _RSGDFBuilder(_Int3cBuilder):
                 yield -uniq_kpts[k], kpt_ji_idx, _conj_j2c(cd_j2c)
 
     def make_j3c(self, cderi_file, intor='int3c2e', aosym='s2', comp=None,
-                 j_only=False, shls_slice=None):
+                 j_only=False, shls_slice=None, kderiv=0):
         if self.rs_cell is None:
             self.build()
         log = logger.new_logger(self)
@@ -949,6 +1120,7 @@ class _RSGDFBuilder(_Int3cBuilder):
         cell = self.cell
         kpts = self.kpts
         nkpts = len(kpts)
+        kcomp = (kderiv+1)*(kderiv+2)//2
         nao = cell.nao
         naux = self.auxcell.nao
         if shls_slice is None:
@@ -959,6 +1131,10 @@ class _RSGDFBuilder(_Int3cBuilder):
         dataname = 'j3c'
         fswap = self.outcore_auxe2(cderi_file, intor, aosym, comp, j_only,
                                    dataname, shls_slice)
+        if kderiv > 0:
+            dataname_kderiv = 'j3c_kderiv'
+            fswap_kderiv = self.outcore_auxe2(cderi_file, intor, aosym, comp, j_only,
+                                              dataname_kderiv, shls_slice, kderiv=kderiv)
         cpu1 = log.timer('pass1: real space int3c2e', *cpu0)
 
         feri = h5py.File(cderi_file, 'w')
@@ -975,6 +1151,8 @@ class _RSGDFBuilder(_Int3cBuilder):
             supmol_ft.exclude_dd_block = self.exclude_dd_block
             supmol_ft = supmol_ft.strip_basis()
             ft_kern = supmol_ft.gen_ft_kernel(aosym, return_complex=False, verbose=log)
+            if kderiv > 0:
+                ft_kern_kderiv = supmol_ft.gen_ft_kernel(aosym, return_complex=False, verbose=log, kderiv=kderiv)
 
         Gv, Gvbase, kws = cell.get_Gv_weights(self.mesh)
         gxyz = lib.cartesian_prod([np.arange(len(x)) for x in Gvbase])
@@ -1034,8 +1212,66 @@ class _RSGDFBuilder(_Int3cBuilder):
                         feri[f'{dataname}-/{kk_idx}/{istep}'] = cderi_negative
                 j3cR = j3cI = j3c = cderi = None
 
+        def make_cderi_kderiv(kpt, kpt_ij_idx, j2c):
+            log.debug1('make_cderi_kderiv for %s', kpt)
+            log.debug1('kpt_ij_idx = %s', kpt_ij_idx)
+            kptjs = kpts[kpt_ij_idx % nkpts]
+            nkptj = len(kptjs)
+            if self.has_long_range():
+                Gaux = self.weighted_ft_ao(kpt)
+
+            mem_now = lib.current_memory()[0]
+            log.debug2('memory = %s', mem_now)
+            max_memory = max(1000, self.max_memory - mem_now)
+            # nkptj for 3c-coulomb arrays plus 1 Lpq array
+            buflen = min(max(int(max_memory*.3e6/16/naux/(nkptj*kcomp+1)), 1), nao_pair)
+            sh_ranges = _guess_shell_ranges(cell, buflen, aosym, start=ish0, stop=ish1)
+            buflen = max([x[2] for x in sh_ranges])
+            # * 2 for the buffer used in preload
+            max_memory -= buflen * naux * (nkptj*kcomp+1) * 16e-6 * 2
+
+            # +1 for a pqkbuf
+            Gblksize = max(16, int(max_memory*1e6/16/buflen/(nkptj*kcomp+1)))
+            Gblksize = min(Gblksize, ngrids, 200000)
+
+            load = self.gen_j3c_kderiv_loader(fswap_kderiv, kpt, kpt_ij_idx, aosym,
+                                              dataname_kderiv, kderiv)
+
+            cols = [sh_range[2] for sh_range in sh_ranges]
+            locs = np.append(0, np.cumsum(cols))
+            # buf for ft_aopair
+            buf = np.empty(nkptj*kcomp*buflen*Gblksize, dtype=np.complex128)
+            for istep, j3c in enumerate(lib.map_with_prefetch(load, locs[:-1], locs[1:])):
+                bstart, bend, ncol = sh_ranges[istep]
+                log.debug1('int3c2e [%d/%d], AO [%d:%d], ncol = %d',
+                           istep+1, len(sh_ranges), bstart, bend, ncol)
+                if aosym == 's2':
+                    shls_slice = (bstart, bend, 0, bend)
+                else:
+                    shls_slice = (bstart, bend, 0, cell.nbas)
+
+                if self.has_long_range():
+                    for p0, p1 in lib.prange(0, ngrids, Gblksize):
+                        # shape of Gpq (nkpts, nGv, ni, nj)
+                        Gpq = ft_kern_kderiv(Gv[p0:p1], gxyz[p0:p1], Gvbase, kpt,
+                                             kptjs, shls_slice, out=buf)
+                        self.add_ft_j3c_kderiv(j3c, Gpq, Gaux, p0, p1, kderiv)
+                        Gpq = None
+
+                j3cR, j3cI = j3c
+                for k, kk_idx in enumerate(kpt_ij_idx):
+                    cderi, cderi_negative = self.solve_cderi_kderiv(j2c, j3cR[k], j3cI[k])
+                    feri[f'{dataname_kderiv}/{kk_idx}/{istep}'] = cderi
+                    if cderi_negative is not None:
+                        # for low-dimension systems
+                        feri[f'{dataname_kderiv}-/{kk_idx}/{istep}'] = cderi_negative
+                j3cR = j3cI = j3c = cderi = None
+
+
         for kpt, kpt_ij_idx, cd_j2c in self.gen_uniq_kpts_groups(j_only, fswap):
             make_cderi(kpt, kpt_ij_idx, cd_j2c)
+            if kderiv > 0:
+                make_cderi_kderiv(kpt, kpt_ij_idx, cd_j2c)
 
         feri.close()
         cpu1 = log.timer('pass2: AFT int3c2e', *cpu1)
@@ -1188,19 +1424,28 @@ def _guess_omega(cell, kpts, mesh=None):
     omega = aft.estimate_omega_for_ke_cutoff(cell, ke_cutoff, cell.precision)
     return omega, mesh, ke_cutoff
 
-def _eval_gto(cell, mesh, kpts):
+def _eval_gto(cell, mesh, kpts, kderiv=0):
+    kcomp = (kderiv+1)*(kderiv+2)//2
     coords = cell.get_uniform_grids(mesh)
     nkpts = len(kpts)
     nao = cell.nao
     ngrids = len(coords)
 
-    ao_ks = cell.pbc_eval_gto('GTOval', coords, kpts=kpts)
+    ao_ks = cell.pbc_eval_gto('GTOval', coords, kpts=kpts,
+                              kderiv=kderiv)
 
-    aoR_ks = np.empty((nkpts, nao, ngrids))
-    aoI_ks = np.empty((nkpts, nao, ngrids))
+    aoR_ks = np.empty((nkpts*kcomp, nao, ngrids))
+    aoI_ks = np.empty((nkpts*kcomp, nao, ngrids))
+    if kderiv > 0:
+        aoR_ks = aoR_ks.reshape(nkpts, kcomp, nao, ngrids)
+        aoI_ks = aoI_ks.reshape(nkpts, kcomp, nao, ngrids)
     for k, dat in enumerate(ao_ks):
-        aoR_ks[k] = dat.real.T
-        aoI_ks[k] = dat.imag.T
+        if kderiv > 0:
+            aoR_ks[k] = dat.real.transpose(0,2,1)
+            aoI_ks[k] = dat.imag.transpose(0,2,1)
+        else:
+            aoR_ks[k] = dat.real.T
+            aoI_ks[k] = dat.imag.T
     return aoR_ks, aoI_ks
 
 def _conj_j2c(cd_j2c):

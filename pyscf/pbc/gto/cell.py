@@ -340,7 +340,7 @@ def conc_cell(cell1, cell2):
     return cell3
 
 def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
-                shls_slice=None, **kwargs):
+                shls_slice=None, kderiv=0, **kwargs):
     r'''1-electron integrals from two cells like
 
     .. math::
@@ -349,6 +349,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
     '''
     import copy
     intor, comp = moleintor._get_intor_and_comp(cell1._add_suffix(intor), comp)
+    kcomp = (kderiv+1)*(kderiv+2)//2
 
     if kpts is None:
         if kpt is not None:
@@ -372,7 +373,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
     ao_loc = moleintor.make_loc(bas, intor)
     ni = ao_loc[i1] - ao_loc[i0]
     nj = ao_loc[j1] - ao_loc[j0]
-    out = np.empty((nkpts,comp,ni,nj), dtype=np.complex128)
+    out = np.empty((nkpts,kcomp,comp,ni,nj), dtype=np.complex128)
 
     if hermi == 0:
         aosym = 's1'
@@ -383,43 +384,11 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
     cintopt = lib.c_null_ptr()
 
     Ls = cell1.get_lattice_Ls(rcut=max(cell1.rcut, cell2.rcut))
-    expkL = np.asarray(np.exp(1j*np.dot(kpts_lst, Ls.T)), order='C')
+    expkL = np.asarray(pbctools.get_expkL(kpts_lst, Ls, kderiv), order='C')
     drv = libpbc.PBCnr2c_drv
 
-    kderiv = kwargs.get('kderiv', 0)
-    if kderiv > 0:
-        hermi = 0
-        aosym = 's1'
-        mat = np.empty((nkpts,(3**kderiv)*comp,ni,nj), dtype=np.complex128)
-        if kderiv == 1:
-            fac = 1j * lib.einsum('kl,lx->xkl', expkL, Ls)
-        elif kderiv == 2:
-            fac = -lib.einsum('kl,lx,ly->xykl', expkL, Ls, Ls).reshape(-1,nkpts,len(Ls))
-        else:
-            raise NotImplementedError
-
-        for x in range(fac.shape[0]):
-            facx = np.asarray(fac[x], order='C')
-            drv(fintor, fill, out.ctypes.data_as(ctypes.c_void_p),
-                ctypes.c_int(nkpts), ctypes.c_int(comp), ctypes.c_int(len(Ls)),
-                Ls.ctypes.data_as(ctypes.c_void_p),
-                facx.ctypes.data_as(ctypes.c_void_p),
-                (ctypes.c_int*4)(i0, i1, j0, j1),
-                ao_loc.ctypes.data_as(ctypes.c_void_p), cintopt,
-                atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(pcell.natm),
-                bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(pcell.nbas),
-                env.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(env.size))
-
-            for k, kpt in enumerate(kpts_lst):
-                v = out[k]
-                if hermi != 0:
-                    for ic in range(comp):
-                        lib.hermi_triu(v[ic], hermi=hermi, inplace=True)
-                mat[k, x*comp:(x+1)*comp] = v.copy()
-        return mat
-
     drv(fintor, fill, out.ctypes.data_as(ctypes.c_void_p),
-        ctypes.c_int(nkpts), ctypes.c_int(comp), ctypes.c_int(len(Ls)),
+        ctypes.c_int(nkpts*kcomp), ctypes.c_int(comp), ctypes.c_int(len(Ls)),
         Ls.ctypes.data_as(ctypes.c_void_p),
         expkL.ctypes.data_as(ctypes.c_void_p),
         (ctypes.c_int*4)(i0, i1, j0, j1),
@@ -432,11 +401,14 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
     for k, kpt in enumerate(kpts_lst):
         v = out[k]
         if hermi != 0:
-            for ic in range(comp):
-                lib.hermi_triu(v[ic], hermi=hermi, inplace=True)
+            for ik in range(kcomp):
+                for ic in range(comp):
+                    lib.hermi_triu(v[ik,ic], hermi=hermi, inplace=True)
         if comp == 1:
+            v = v[:,0]
+        if kderiv == 0:
             v = v[0]
-        if abs(kpt).sum() < 1e-9:  # gamma_point
+        if abs(kpt).sum() < 1e-9 and kderiv == 0:  # gamma_point
             v = v.real
         mat.append(v)
 
@@ -1662,7 +1634,7 @@ class Cell(mole.Mole):
     __add__ = conc_cell
 
     def pbc_intor(self, intor, comp=None, hermi=0, kpts=None, kpt=None,
-                  shls_slice=None, **kwargs):
+                  shls_slice=None, kderiv=0, **kwargs):
         r'''One-electron integrals with PBC.
 
         .. math::
@@ -1677,7 +1649,7 @@ class Cell(mole.Mole):
             # may not be consistent. calling .build() may leads to wrong intor env.
             #self.build(False, False)
         return intor_cross(intor, self, self, comp, hermi, kpts, kpt,
-                           shls_slice, **kwargs)
+                           shls_slice, kderiv, **kwargs)
 
     pbc_eval_ao = pbc_eval_gto = pbc_eval_gto
 

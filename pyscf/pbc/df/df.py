@@ -132,13 +132,14 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
     # _RSGDFBuilder but numerically more close to previous versions
     _prefer_ccdf = False
 
-    def __init__(self, cell, kpts=numpy.zeros((1,3))):
+    def __init__(self, cell, kpts=numpy.zeros((1,3)), kderiv=0):
         self.cell = cell
         self.stdout = cell.stdout
         self.verbose = cell.verbose
         self.max_memory = cell.max_memory
 
         self.kpts = kpts  # default is gamma point
+        self.kderiv = kderiv
         self.kpts_band = None
         self._auxbasis = None
 
@@ -208,6 +209,7 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         if self.mesh is not None:
             log.info('mesh = %s (%d PWs)', self.mesh, numpy.prod(self.mesh))
         log.info('exp_to_discard = %s', self.exp_to_discard)
+        log.info('kderiv = %s', self.kderiv)
         if isinstance(self._cderi, str):
             log.info('_cderi = %s  where DF integrals are loaded (readonly).',
                      self._cderi)
@@ -284,7 +286,7 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         dfbuilder.mesh = self.mesh
         dfbuilder.linear_dep_threshold = self.linear_dep_threshold
         j_only = self._j_only or len(kpts_union) == 1
-        dfbuilder.make_j3c(cderi_file, j_only=j_only)
+        dfbuilder.make_j3c(cderi_file, j_only=j_only, kderiv=self.kderiv)
 
     def cderi_array(self, label='j3c'):
         '''

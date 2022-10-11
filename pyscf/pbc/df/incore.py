@@ -193,7 +193,8 @@ class _Int3cBuilder(lib.StreamObject):
 
     def gen_int3c_kernel(self, intor='int3c2e', aosym='s2', comp=None,
                          j_only=False, reindex_k=None, rs_auxcell=None,
-                         auxcell=None, supmol=None, return_complex=False):
+                         auxcell=None, supmol=None, return_complex=False,
+                         kderiv=0):
         '''Generate function to compute int3c2e with double lattice-sum
 
         rs_auxcell: range-separated auxcell for gdf/rsdf module
@@ -202,6 +203,11 @@ class _Int3cBuilder(lib.StreamObject):
         '''
         log = logger.new_logger(self)
         cput0 = logger.process_clock(), logger.perf_counter()
+        if kderiv > 0:
+            if kderiv > 1 or reindex_k is not None:
+                raise NotImplementedError
+        kcomp = (kderiv+1)*(kderiv+2)//2
+
         if self.rs_cell is None:
             self.build()
         if auxcell is None:
@@ -255,28 +261,32 @@ class _Int3cBuilder(lib.StreamObject):
 
         aosym = aosym[:2]
         gamma_point_only = is_zero(kpts)
-        if gamma_point_only:
+        if gamma_point_only and kderiv == 0:
             assert nkpts == 1
             fill = f'PBCfill_nr3c_g{aosym}'
             nkpts_ij = 1
             cache_size += dijk
-        elif nkpts == 1:
+        elif nkpts == 1 and kderiv == 0:
             fill = f'PBCfill_nr3c_nk1{aosym}'
             nkpts_ij = 1
             cache_size += dijk * 3
         elif j_only:
             fill = f'PBCfill_nr3c_k{aosym}'
+            if kderiv > 0:
+                fill = f'PBCfill_nr3c_k{aosym}_kderiv{kderiv}'
             # sort kpts then reindex_k in sort_k can be skipped
             if reindex_k is not None:
                 kpts = kpts[reindex_k]
                 nkpts = len(kpts)
             nkpts_ij = nkpts
-            cache_size = (dijk * bvk_ncells + dijk * nkpts * 2 +
-                          max(dijk * nkpts * 2, cache_size))
+            cache_size = (dijk * bvk_ncells + dijk * nkpts * kcomp * 2 +
+                          max(dijk * nkpts * kcomp * 2, cache_size))
         else:
             fill = f'PBCfill_nr3c_kk{aosym}'
+            if kderiv > 0:
+                fill = f'PBCfill_nr3c_kk{aosym}_kderiv{kderiv}'
             nkpts_ij = nkpts * nkpts
-            cache_size = (max(dijk * bvk_ncells**2 + cache_size, dijk * nkpts**2 * 2) +
+            cache_size = (max(dijk * bvk_ncells**2 + cache_size, dijk * nkpts_ij*kcomp * 2) +
                           dijk * bvk_ncells * nkpts * 2)
             if aosym == 's2' and reindex_k is not None:
                 kk_mask = np.zeros((nkpts*nkpts), dtype=bool)
@@ -285,13 +295,20 @@ class _Int3cBuilder(lib.StreamObject):
                 if not np.all(kk_mask == kk_mask.T):
                     log.warn('aosym=s2 not found in required kpts pairs')
 
-        expLk = np.exp(1j*np.dot(supmol.bvkmesh_Ls, kpts.T))
+        expLk = pbctools.get_expkL(kpts, supmol.bvkmesh_Ls).T
         expLkR = np.asarray(expLk.real, order='C')
         expLkI = np.asarray(expLk.imag, order='C')
         expLk = None
+        if kderiv > 0:
+            expLk_kderiv = pbctools.get_expkL(kpts, supmol.bvkmesh_Ls, kderiv).T
+            expLkR = np.concatenate((expLkR, expLk_kderiv.real), axis=1)
+            expLkI = np.concatenate((expLkI, expLk_kderiv.imag), axis=1)
+            expLkR = np.asarray(expLkR, order='F') # note the order
+            expLkI = np.asarray(expLkI, order='F')
+            expLk_kderiv = None
 
         if reindex_k is None:
-            reindex_k = np.arange(nkpts_ij, dtype=np.int32)
+            reindex_k = np.arange(nkpts_ij*kcomp, dtype=np.int32)
         else:
             reindex_k = np.asarray(reindex_k, dtype=np.int32)
             nkpts_ij = reindex_k.size
@@ -321,14 +338,14 @@ class _Int3cBuilder(lib.StreamObject):
             else:
                 nrow = i1*(i1+1)//2 - i0*(i0+1)//2
             if comp == 1:
-                shape = (nkpts_ij, nrow, k1-k0)
+                shape = (nkpts_ij*kcomp, nrow, k1-k0)
             else:
-                shape = (nkpts_ij, comp, nrow, k1-k0)
+                shape = (nkpts_ij*kcomp, comp, nrow, k1-k0)
             # output has to be filled with zero first because certain integrals
             # may be skipped by fill_ints driver
             outR = np.ndarray(shape, buffer=outR)
             outR[:] = 0
-            if gamma_point_only:
+            if gamma_point_only and kderiv == 0:
                 outI = np.zeros(0)
             else:
                 outI = np.ndarray(shape, buffer=outI)
@@ -347,7 +364,8 @@ class _Int3cBuilder(lib.StreamObject):
                 expLkI.ctypes.data_as(ctypes.c_void_p),
                 reindex_k.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(nkpts_ij),
                 ctypes.c_int(bvk_ncells), ctypes.c_int(nimgs),
-                ctypes.c_int(nkpts), ctypes.c_int(nbasp), ctypes.c_int(comp),
+                ctypes.c_int(nkpts), ctypes.c_int(nbasp),
+                ctypes.c_int(comp), ctypes.c_int(kcomp),
                 sh_loc.ctypes.data_as(ctypes.c_void_p),
                 cell0_ao_loc.ctypes.data_as(ctypes.c_void_p),
                 (ctypes.c_int*6)(*shls_slice),
@@ -362,12 +380,12 @@ class _Int3cBuilder(lib.StreamObject):
 
             log.timer_debug1(f'pbc integral {intor}', *cput0)
             if return_complex:
-                if gamma_point_only:
+                if gamma_point_only and kderiv == 0:
                     return outR
                 else:
                     return outR + outI * 1j
             else:
-                if gamma_point_only:
+                if gamma_point_only and kderiv == 0:
                     return outR, None
                 else:
                     return outR, outI
@@ -447,7 +465,7 @@ class _IntNucBuilder(_Int3cBuilder):
         return self._ovlp_mask, self._cell0_ovlp_mask
 
     def _int_nuc_vloc(self, nuccell, intor='int3c2e', aosym='s2', comp=None,
-                      with_pseudo=True, supmol=None):
+                      with_pseudo=True, supmol=None, kderiv=0):
         '''Vnuc - Vloc. nuccell is the cell for model charges
         '''
         logger.debug2(self, 'Real space integrals %s for Vnuc - Vloc', intor)
@@ -455,6 +473,7 @@ class _IntNucBuilder(_Int3cBuilder):
         cell = self.cell
         kpts = self.kpts
         nkpts = len(kpts)
+        kcomp = (kderiv+1)*(kderiv+2)//2
 
         # Use the 3c2e code with steep s gaussians to mimic nuclear density
         fakenuc = _fake_nuc(cell, with_pseudo=with_pseudo)
@@ -463,16 +482,27 @@ class _IntNucBuilder(_Int3cBuilder):
                              fakenuc._atm, fakenuc._bas, fakenuc._env)
 
         int3c = self.gen_int3c_kernel(intor, aosym, comp=comp, j_only=True,
-                                      auxcell=fakenuc, supmol=supmol)
+                                      auxcell=fakenuc, supmol=supmol,
+                                      kderiv=kderiv)
         bufR, bufI = int3c()
 
         charge = cell.atom_charges()
         charge = np.append(charge, -charge)  # (charge-of-nuccell, charge-of-fakenuc)
-        if is_zero(kpts):
+        if is_zero(kpts) and kderiv == 0:
             mat = np.einsum('k...z,z->k...', bufR, charge)
         else:
             mat = (np.einsum('k...z,z->k...', bufR, charge) +
                    np.einsum('k...z,z->k...', bufI, charge) * 1j)
+
+        if kderiv > 0:
+            assert aosym == 's2'
+            mat = mat.reshape(nkpts,kcomp,-1)
+            tmp = []
+            for k in range(nkpts):
+                v = lib.unpack_tril(mat[k])
+                v+= v.transpose(0,2,1).conj()
+                tmp.append(lib.pack_tril(v))
+            mat = np.asarray(tmp)
 
         # vbar is the interaction between the background charge
         # and the compensating function.  0D, 1D, 2D do not have vbar.
@@ -484,7 +514,7 @@ class _IntNucBuilder(_Int3cBuilder):
             nucbar = sum([z/nuccell.bas_exp(i)[0] for i,z in enumerate(charge)])
             nucbar *= np.pi/cell.vol
 
-            ovlp = cell.pbc_intor('int1e_ovlp', 1, lib.HERMITIAN, kpts)
+            ovlp = cell.pbc_intor('int1e_ovlp', 1, lib.HERMITIAN, kpts, kderiv=kderiv)
             for k in range(nkpts):
                 if aosym == 's1':
                     mat[k] -= nucbar * ovlp[k].ravel()
@@ -492,7 +522,7 @@ class _IntNucBuilder(_Int3cBuilder):
                     mat[k] -= nucbar * lib.pack_tril(ovlp[k])
         return mat
 
-    def _get_nuc(self, mesh=None, with_pseudo=False):
+    def _get_nuc(self, mesh=None, with_pseudo=False, kderiv=0):
         from pyscf.pbc.df.gdf_builder import _guess_eta
         log = logger.Logger(self.stdout, self.verbose)
         t0 = t1 = (logger.process_clock(), logger.perf_counter())
@@ -502,6 +532,7 @@ class _IntNucBuilder(_Int3cBuilder):
         nao = cell.nao_nr()
         aosym = 's2'
         nao_pair = nao * (nao+1) // 2
+        kcomp = (kderiv+1)*(kderiv+2)//2
 
         kpt_allow = np.zeros(3)
         eta, mesh, ke_cutoff = _guess_eta(cell, kpts, mesh)
@@ -516,7 +547,7 @@ class _IntNucBuilder(_Int3cBuilder):
 
         modchg_cell = _compensate_nuccell(cell, eta)
         vj = self._int_nuc_vloc(modchg_cell, with_pseudo=with_pseudo,
-                                supmol=supmol)
+                                supmol=supmol, kderiv=kderiv).reshape(nkpts,kcomp,-1)
         t0 = t1 = log.timer_debug1('vnuc pass1: analytic int', *t0)
 
         Gv, Gvbase, kws = cell.get_Gv_weights(mesh)
@@ -527,7 +558,8 @@ class _IntNucBuilder(_Int3cBuilder):
 
         supmol_ft = ft_ao._ExtendedMole.from_cell(self.rs_cell, self.bvk_kmesh, verbose=log)
         supmol_ft = supmol_ft.strip_basis()
-        ft_kern = supmol_ft.gen_ft_kernel(aosym, return_complex=False, verbose=log)
+        ft_kern = supmol_ft.gen_ft_kernel(aosym, return_complex=False, verbose=log,
+                                          kderiv=kderiv)
 
         Gv, Gvbase, kws = modchg_cell.get_Gv_weights(mesh)
         gxyz = lib.cartesian_prod([np.arange(len(x)) for x in Gvbase])
@@ -540,32 +572,37 @@ class _IntNucBuilder(_Int3cBuilder):
         log.debug1('max_memory = %s  Gblksize = %s  ngrids = %s',
                    max_memory, Gblksize, ngrids)
 
-        buf = np.empty((2, nkpts, Gblksize, nao_pair))
+        buf = np.empty((2, nkpts*kcomp, Gblksize, nao_pair))
         for p0, p1 in lib.prange(0, ngrids, Gblksize):
             # shape of Gpq (nkpts, nGv, nao_pair)
-            Gpq = ft_kern(Gv[p0:p1], gxyz[p0:p1], Gvbase, kpt_allow, kpts, out=buf)
-            for k, (GpqR, GpqI) in enumerate(zip(*Gpq)):
+            GpqR, GpqI = ft_kern(Gv[p0:p1], gxyz[p0:p1], Gvbase, kpt_allow, kpts, out=buf)
+            GpqR = GpqR.reshape(nkpts, kcomp, -1, nao_pair)
+            GpqI = GpqI.reshape(nkpts, kcomp, -1, nao_pair)
+            for k, (GpqR_k, GpqI_k) in enumerate(zip(GpqR, GpqI)):
                 # rho_ij(G) nuc(-G) / G^2
                 # = [Re(rho_ij(G)) + Im(rho_ij(G))*1j] [Re(nuc(G)) - Im(nuc(G))*1j] / G^2
-                vR = np.einsum('k,kx->x', vGR[p0:p1], GpqR)
-                vR+= np.einsum('k,kx->x', vGI[p0:p1], GpqI)
+                vR = np.einsum('k,ckx->cx', vGR[p0:p1], GpqR_k)
+                vR+= np.einsum('k,ckx->cx', vGI[p0:p1], GpqI_k)
                 vj[k] += vR
-                if not is_zero(kpts[k]):
-                    vI = np.einsum('k,kx->x', vGR[p0:p1], GpqI)
-                    vI-= np.einsum('k,kx->x', vGI[p0:p1], GpqR)
+                if not is_zero(kpts[k]) or kderiv > 0:
+                    vI = np.einsum('k,ckx->cx', vGR[p0:p1], GpqI_k)
+                    vI-= np.einsum('k,ckx->cx', vGI[p0:p1], GpqR_k)
                     vj[k] += vI * 1j
             t1 = log.timer_debug1('contracting Vnuc [%s:%s]'%(p0, p1), *t1)
         log.timer_debug1('contracting Vnuc', *t0)
 
+        if kderiv == 0:
+            vj = vj.reshape(nkpts,-1)
+
         vj_kpts = []
         for k, kpt in enumerate(kpts):
-            if is_zero(kpt):
+            if is_zero(kpt) and kderiv == 0:
                 vj_kpts.append(lib.unpack_tril(vj[k].real))
             else:
                 vj_kpts.append(lib.unpack_tril(vj[k]))
         return np.asarray(vj_kpts)
 
-    def get_nuc(self, mesh=None):
+    def get_nuc(self, mesh=None, kderiv=0):
         '''Get the periodic nuc-el AO matrix, with G=0 removed.
 
         Kwargs:
@@ -573,14 +610,15 @@ class _IntNucBuilder(_Int3cBuilder):
             function _guess_eta from module pbc.df.gdf_builder.
         '''
         t0 = (logger.process_clock(), logger.perf_counter())
-        nuc = self._get_nuc(mesh, with_pseudo=False)
+        nuc = self._get_nuc(mesh, with_pseudo=False, kderiv=kderiv)
         logger.timer(self, 'get_nuc', *t0)
         return nuc
 
-    def get_pp_loc_part1(self, mesh=None):
-        return self._get_nuc(mesh, with_pseudo=True)
+    def get_pp_loc_part1(self, mesh=None, kderiv=0):
+        return self._get_nuc(mesh, with_pseudo=True, kderiv=kderiv)
 
-    def get_pp_loc_part2(self):
+    def get_pp_loc_part2(self, kderiv=0):
+        kcomp = (kderiv+1)*(kderiv+2)//2
         if self.rs_cell is None:
             self.build()
         cell = self.cell
@@ -597,7 +635,8 @@ class _IntNucBuilder(_Int3cBuilder):
             fake_cell = pp_int.fake_cell_vloc(cell, cn)
             if fake_cell.nbas > 0:
                 int3c = self.gen_int3c_kernel(intors[cn], 's2', comp=1, j_only=True,
-                                              auxcell=fake_cell, supmol=supmol)
+                                              auxcell=fake_cell, supmol=supmol,
+                                              kderiv=kderiv)
                 vR, vI = int3c()
                 bufR += np.einsum('...i->...', vR)
                 if vI is not None:
@@ -614,25 +653,30 @@ class _IntNucBuilder(_Int3cBuilder):
             buf = (bufR + bufI * 1j).reshape(nkpts,-1)
             vpploc = []
             for k, kpt in enumerate(kpts):
-                v = lib.unpack_tril(buf[k])
-                if abs(kpt).sum() < 1e-9:  # gamma_point:
+                if kderiv == 0:
+                    v = lib.unpack_tril(buf[k])
+                else:
+                    v = lib.unpack_tril(buf[k].reshape(kcomp,-1))
+                    v+= v.transpose(0,2,1).conj()
+                if abs(kpt).sum() < 1e-9 and kderiv == 0:  # gamma_point:
                     v = v.real
                 vpploc.append(v)
         return vpploc
 
-    def get_pp(self, mesh=None):
+    def get_pp(self, mesh=None, kderiv=0):
         '''Get the periodic pseudotential nuc-el AO matrix, with G=0 removed.
 
         Kwargs:
             mesh: custom mesh grids. By default mesh is determined by the
             function _guess_eta from module pbc.df.gdf_builder.
+            kderiv: order of k-point derivative.
         '''
         t0 = (logger.process_clock(), logger.perf_counter())
-        vloc1 = self.get_pp_loc_part1(mesh)
+        vloc1 = self.get_pp_loc_part1(mesh, kderiv=kderiv)
         t1 = logger.timer_debug1(self, 'get_pp_loc_part1', *t0)
-        vloc2 = self.get_pp_loc_part2()
+        vloc2 = self.get_pp_loc_part2(kderiv=kderiv)
         t1 = logger.timer_debug1(self, 'get_pp_loc_part2', *t1)
-        vpp = pp_int.get_pp_nl(self.cell, self.kpts)
+        vpp = pp_int.get_pp_nl(self.cell, self.kpts, kderiv=kderiv)
         nkpts = len(self.kpts)
         for k in range(nkpts):
             vpp[k] += vloc1[k] + vloc2[k]

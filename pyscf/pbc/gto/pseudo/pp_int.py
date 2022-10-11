@@ -30,6 +30,7 @@ import scipy.special
 from pyscf import lib
 from pyscf import gto
 from pyscf import __config__
+from pyscf.pbc.tools import pbc as pbctools
 
 libpbc = lib.load_library('libpbc')
 
@@ -113,7 +114,11 @@ def get_pp_loc_part2(cell, kpts=None):
         vpploc = vpploc[0]
     return vpploc
 
-def get_pp_nl(cell, kpts=None):
+def get_pp_nl(cell, kpts=None, kderiv=0):
+    if kderiv > 1:
+        raise NotImplementedError
+    kcomp = (kderiv+1)*(kderiv+2)//2
+
     if kpts is None:
         kpts_lst = numpy.zeros((1,3))
     else:
@@ -122,12 +127,20 @@ def get_pp_nl(cell, kpts=None):
 
     fakecell, hl_blocks = fake_cell_vnl(cell)
     ppnl_half = _int_vnl(cell, fakecell, hl_blocks, kpts_lst)
+    if kderiv > 0:
+        ppnl_half_kderiv = _int_vnl(cell, fakecell, hl_blocks,
+                                    kpts_lst, kderiv=kderiv)
     nao = cell.nao_nr()
     buf = numpy.empty((3*9*nao), dtype=numpy.complex128)
+    if kderiv > 0:
+        buf1 = numpy.empty((3*9*nao*kcomp), dtype=numpy.complex128)
 
     # We set this equal to zeros in case hl_blocks loop is skipped
     # and ppnl is returned
-    ppnl = numpy.zeros((nkpts,nao,nao), dtype=numpy.complex128)
+    if kderiv > 0:
+        ppnl = numpy.zeros((nkpts,kcomp,nao,nao), dtype=numpy.complex128)
+    else:
+        ppnl = numpy.zeros((nkpts,nao,nao), dtype=numpy.complex128)
     for k, kpt in enumerate(kpts_lst):
         offset = [0] * 3
         for ib, hl in enumerate(hl_blocks):
@@ -135,15 +148,25 @@ def get_pp_nl(cell, kpts=None):
             nd = 2 * l + 1
             hl_dim = hl.shape[0]
             ilp = numpy.ndarray((hl_dim,nd,nao), dtype=numpy.complex128, buffer=buf)
+            if kderiv > 0:
+                ilp_kderiv = numpy.ndarray((hl_dim,kcomp,nd,nao), dtype=numpy.complex128,
+                                           buffer=buf1)
             for i in range(hl_dim):
                 p0 = offset[i]
                 ilp[i] = ppnl_half[i][k][p0:p0+nd]
+                if kderiv > 0:
+                    ilp_kderiv[i] = ppnl_half_kderiv[i][k,:,p0:p0+nd]
                 offset[i] = p0 + nd
-            ppnl[k] += numpy.einsum('ilp,ij,jlq->pq', ilp.conj(), hl, ilp)
+            if kderiv > 0:
+                ppnl[k] += numpy.einsum('ilp,ij,jxlq->xpq', ilp.conj(), hl, ilp_kderiv)
+            else:
+                ppnl[k] += numpy.einsum('ilp,ij,jlq->pq', ilp.conj(), hl, ilp)
 
-    if abs(kpts_lst).sum() < 1e-9:  # gamma_point:
+    if abs(kpts_lst).sum() < 1e-9 and kderiv == 0:  # gamma_point:
         ppnl = ppnl.real
 
+    if kderiv > 0:
+        ppnl += ppnl.transpose(0,1,3,2).conj()
     if kpts is None or numpy.shape(kpts) == (3,):
         ppnl = ppnl[0]
     return ppnl
@@ -254,12 +277,13 @@ def fake_cell_vnl(cell):
     fakecell._env = numpy.asarray(numpy.hstack(fake_env), dtype=numpy.double)
     return fakecell, hl_blocks
 
-def _int_vnl(cell, fakecell, hl_blocks, kpts):
+def _int_vnl(cell, fakecell, hl_blocks, kpts, kderiv=0):
     '''Vnuc - Vloc'''
+    kcomp = (kderiv+1)*(kderiv+2)//2
     rcut = max(cell.rcut, fakecell.rcut)
     Ls = cell.get_lattice_Ls(rcut=rcut)
     nimgs = len(Ls)
-    expkL = numpy.asarray(numpy.exp(1j*numpy.dot(kpts, Ls.T)), order='C')
+    expkL = numpy.asarray(pbctools.get_expkL(kpts, Ls, kderiv), order='C')
     nkpts = len(kpts)
 
     fill = getattr(libpbc, 'PBCnr2c_fill_ks1')
@@ -280,14 +304,17 @@ def _int_vnl(cell, fakecell, hl_blocks, kpts):
         ao_loc = gto.moleintor.make_loc(bas, intor)
         ni = ao_loc[shls_slice[1]] - ao_loc[shls_slice[0]]
         nj = ao_loc[shls_slice[3]] - ao_loc[shls_slice[2]]
-        out = numpy.empty((nkpts,ni,nj), dtype=numpy.complex128)
+        shape = (nkpts,ni,nj)
+        if kderiv > 0:
+            shape = (nkpts,kcomp,ni,nj)
+        out = numpy.empty(shape, dtype=numpy.complex128)
         comp = 1
 
         fintor = getattr(gto.moleintor.libcgto, intor)
 
         drv = libpbc.PBCnr2c_drv
         drv(fintor, fill, out.ctypes.data_as(ctypes.c_void_p),
-            ctypes.c_int(nkpts), ctypes.c_int(comp), ctypes.c_int(nimgs),
+            ctypes.c_int(nkpts*kcomp), ctypes.c_int(comp), ctypes.c_int(nimgs),
             Ls.ctypes.data_as(ctypes.c_void_p),
             expkL.ctypes.data_as(ctypes.c_void_p),
             (ctypes.c_int*4)(*(shls_slice[:4])),

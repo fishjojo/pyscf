@@ -178,6 +178,8 @@ static void _sort_kks1(double *outR, double *outI, double *bufkkR, double *bufkk
         int *shls_slice = envs_bvk->shls_slice;
         int *kpt_ij_idx = envs_bvk->kpt_ij_idx;
         int kpt_ij_size = envs_bvk->kpt_ij_size;
+        int kcomp = envs_bvk->kcomp;
+        kpt_ij_size *= kcomp;
         int nkpts = envs_bvk->nkpts;
         int comp = envs_bvk->ncomp;
         int ish = shls[0];
@@ -206,7 +208,7 @@ static void _sort_kks1(double *outR, double *outI, double *bufkkR, double *bufkk
         int dj = j1 - j0;
         int dk = k1 - k0;
         int dij = di * dj;
-        int KK = nkpts * nkpts;
+        int KK = nkpts * nkpts * kcomp;
         int KKdij = KK * dij;
         size_t naoi = ip1 - ip0;
         size_t naoj = jp1 - jp0;
@@ -246,6 +248,8 @@ static void _sort_kks2(double *outR, double *outI, double *bufkkR, double *bufkk
         int *shls_slice = envs_bvk->shls_slice;
         int *kpt_ij_idx = envs_bvk->kpt_ij_idx;
         int kpt_ij_size = envs_bvk->kpt_ij_size;
+        int kcomp = envs_bvk->kcomp;
+        kpt_ij_size *= kcomp;
         int nkpts = envs_bvk->nkpts;
         int comp = envs_bvk->ncomp;
         int ish = shls[0];
@@ -271,7 +275,7 @@ static void _sort_kks2(double *outR, double *outI, double *bufkkR, double *bufkk
         int dj = j1 - j0;
         int dk = k1 - k0;
         int dij = di * dj;
-        int KK = nkpts * nkpts;
+        int KK = nkpts * nkpts * kcomp;
         int KKdij = KK * dij;
         size_t ijoff = (size_t)ip0 * (ip0 + 1) / 2;
         size_t nao2 = (size_t)ip1 * (ip1 + 1) / 2 - ijoff;
@@ -404,6 +408,88 @@ static void _fill_kk(int (*intor)(), FPtrSort fsort,
         }
 }
 
+static void _fill_kk_kderiv1(int (*intor)(), FPtrSort fsort,
+                     double *outR, double *outI, double *cache, int *cell0_shls,
+                     CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+{
+        //char TRANS_N = 'N';
+        char TRANS_T = 'T';
+        double D0 = 0;
+        double D1 = 1;
+        double ND1 = -1;
+
+        int bvk_ncells = envs_bvk->ncells;
+        int nkpts = envs_bvk->nkpts;
+        int kcomp = envs_bvk->kcomp;
+        int nkkc = nkpts * kcomp;
+        int *cell0_ao_loc = envs_bvk->ao_loc;
+        int ish_cell0 = cell0_shls[0];
+        int jsh_cell0 = cell0_shls[1];
+        int ksh_cell0 = cell0_shls[2];
+        int di = cell0_ao_loc[ish_cell0+1] -  cell0_ao_loc[ish_cell0];
+        int dj = cell0_ao_loc[jsh_cell0+1] -  cell0_ao_loc[jsh_cell0];
+        int dk = cell0_ao_loc[ksh_cell0+1] -  cell0_ao_loc[ksh_cell0];
+        int dij = di * dj;
+        int ncomp = envs_bvk->ncomp;
+        int d3c = dij * dk * ncomp;
+        int d3cL = d3c * bvk_ncells;
+        int d3ck = d3c * nkpts;
+        double *bufkLR = cache;
+        double *bufkLI = bufkLR + (size_t)d3cL * nkpts;
+        double *bufkkR = bufkLI + (size_t)d3cL * nkpts;
+        double *bufkkI = bufkkR + (size_t)d3c * nkpts * nkkc;
+        double *bufL = bufkkR;
+        double *pbuf = bufL;
+        int iL, jL;
+        int bvk_cells[2];
+
+        int iLmax = -1;
+        int jLmax = -1;
+        for (iL = 0; iL < bvk_ncells; iL++) {
+        for (jL = 0; jL < bvk_ncells; jL++) {
+                bvk_cells[0] = iL;
+                bvk_cells[1] = jL;
+                if ((*intor)(pbuf, cell0_shls, bvk_cells, envs_bvk->cutoff,
+                             envs_cint, envs_bvk)) {
+                        iLmax = iL;
+                        jLmax = MAX(jL, jLmax);
+                }
+                pbuf += d3c;
+        } }
+
+        int nLi = iLmax + 1;
+        int nLj = jLmax + 1;
+        double *expLkR = envs_bvk->expLkR;
+        double *expLkI = envs_bvk->expLkI;
+        double *expLkR_kderiv1 = expLkR + bvk_ncells * nkpts;
+        double *expLkI_kderiv1 = expLkI + bvk_ncells * nkpts;
+
+        if (jLmax >= 0) {  // ensure j3c buf is not empty
+                dgemm_(&TRANS_T, &TRANS_T, &nkpts, &d3cL, &nLi,
+                       &D1, expLkR, &bvk_ncells, bufL, &d3cL,
+                       &D0, bufkLR, &nkpts);
+                // conj(exp(1j*dot(h,k)))
+                dgemm_(&TRANS_T, &TRANS_T, &nkpts, &d3cL, &nLi,
+                       &ND1, expLkI, &bvk_ncells, bufL, &d3cL,
+                       &D0, bufkLI, &nkpts);
+
+                dgemm_(&TRANS_T, &TRANS_T, &nkkc, &d3ck, &nLj,
+                       &D1, expLkR_kderiv1, &bvk_ncells, bufkLR, &d3ck,
+                       &D0, bufkkR, &nkkc);
+                dgemm_(&TRANS_T, &TRANS_T, &nkkc, &d3ck, &nLj,
+                       &ND1, expLkI_kderiv1, &bvk_ncells, bufkLI, &d3ck,
+                       &D1, bufkkR, &nkkc);
+                dgemm_(&TRANS_T, &TRANS_T, &nkkc, &d3ck, &nLj,
+                       &D1, expLkR_kderiv1, &bvk_ncells, bufkLI, &d3ck,
+                       &D0, bufkkI, &nkkc);
+                dgemm_(&TRANS_T, &TRANS_T, &nkkc, &d3ck, &nLj,
+                       &D1, expLkI_kderiv1, &bvk_ncells, bufkLR, &d3ck,
+                       &D1, bufkkI, &nkkc);
+
+                (*fsort)(outR, outI, bufkkR, bufkkI, cell0_shls, cell0_ao_loc, envs_bvk);
+        }
+}
+
 void PBCfill_nr3c_kks1(int (*intor)(), double *outR, double *outI, double *cache,
                        int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
@@ -421,12 +507,31 @@ void PBCfill_nr3c_kks2(int (*intor)(), double *outR, double *outI, double *cache
         _fill_kk(intor, _sort_kks2, outR, outI, cache, cell0_shls, envs_cint, envs_bvk);
 }
 
+void PBCfill_nr3c_kks1_kderiv1(int (*intor)(), double *outR, double *outI, double *cache,
+                       int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+{
+        _fill_kk_kderiv1(intor, _sort_kks1, outR, outI, cache, cell0_shls, envs_cint, envs_bvk);
+}
+
+void PBCfill_nr3c_kks2_kderiv1(int (*intor)(), double *outR, double *outI, double *cache,
+                       int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+{
+        int ish_cell0 = cell0_shls[0];
+        int jsh_cell0 = cell0_shls[1];
+        if (ish_cell0 < jsh_cell0) {
+                return;
+        }
+        _fill_kk_kderiv1(intor, _sort_kks2, outR, outI, cache, cell0_shls, envs_cint, envs_bvk);
+}
+
 // [kI, i, j, k, comp] in Fortran order => [kI, comp, i, j, k] in C order
 static void _sort_ks1(double *outR, double *outI, double *bufkR, double *bufkI,
                       int *shls, int *ao_loc, BVKEnvs *envs_bvk)
 {
         int *shls_slice = envs_bvk->shls_slice;
         int nkpts = envs_bvk->nkpts;
+        int kcomp = envs_bvk->kcomp;
+        nkpts *= kcomp;
         int comp = envs_bvk->ncomp;
         int ish = shls[0];
         int jsh = shls[1];
@@ -491,6 +596,8 @@ static void _sort_ks2(double *outR, double *outI, double *bufkR, double *bufkI,
 {
         int *shls_slice = envs_bvk->shls_slice;
         int nkpts = envs_bvk->nkpts;
+        int kcomp = envs_bvk->kcomp;
+        nkpts *= kcomp;
         int comp = envs_bvk->ncomp;
         int ish = shls[0];
         int jsh = shls[1];
@@ -641,6 +748,85 @@ static void _fill_k(int (*intor)(), FPtrSort fsort,
         }
 }
 
+static void _fill_k_kderiv1(int (*intor)(), FPtrSort fsort,
+                            double *outR, double *outI, double *cache,
+                            int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+{
+        //char TRANS_N = 'N';
+        char TRANS_T = 'T';
+        double D0 = 0;
+        double D1 = 1;
+
+        int bvk_ncells = envs_bvk->ncells;
+        int nkpts = envs_bvk->nkpts;
+        int kcomp = envs_bvk->kcomp;
+        int nkkc = nkpts * kcomp;
+        int *cell0_ao_loc = envs_bvk->ao_loc;
+        int ish_cell0 = cell0_shls[0];
+        int jsh_cell0 = cell0_shls[1];
+        int ksh_cell0 = cell0_shls[2];
+        int di = cell0_ao_loc[ish_cell0+1] -  cell0_ao_loc[ish_cell0];
+        int dj = cell0_ao_loc[jsh_cell0+1] -  cell0_ao_loc[jsh_cell0];
+        int dk = cell0_ao_loc[ksh_cell0+1] -  cell0_ao_loc[ksh_cell0];
+        int dij = di * dj;
+        int ncomp = envs_bvk->ncomp;
+        int d3c = dij * dk * ncomp;
+        int d3cL = d3c * bvk_ncells;
+        int d3ckkc = d3c * nkkc;
+        double *bufkR = cache;
+        double *bufkI = bufkR + d3ckkc;
+        double *bufL = bufkI + d3ckkc;
+        double *bufLkR = bufL + d3cL;
+        double *bufLkI = bufLkR + d3ckkc;
+        double *pbuf;
+        int iL, jL, jLmax, nLj, i, k, kc;
+        int bvk_cells[2];
+        double *expLkR = envs_bvk->expLkR;
+        double *expLkI = envs_bvk->expLkI;
+        double *expLkR_kderiv1 = expLkR + nkpts * bvk_ncells;
+        double *expLkI_kderiv1 = expLkI + nkpts * bvk_ncells;
+
+        int empty = 1;
+        NPdset0(bufkR, d3ckkc);
+        NPdset0(bufkI, d3ckkc);
+
+        for (iL = 0; iL < bvk_ncells; iL++) {
+                jLmax = -1;
+                pbuf = bufL;
+                for (jL = 0; jL < bvk_ncells; jL++) {
+                        bvk_cells[0] = iL;
+                        bvk_cells[1] = jL;
+                        if ((*intor)(pbuf, cell0_shls, bvk_cells, envs_bvk->cutoff,
+                                     envs_cint, envs_bvk)) {
+                                jLmax = MAX(jL, jLmax);
+                        }
+                        pbuf += d3c;
+                }
+                if (jLmax >= 0) {  // ensure j3c buf is not empty
+                        nLj = jLmax + 1;
+                        dgemm_(&TRANS_T, &TRANS_T, &nkkc, &d3c, &nLj,
+                               &D1, expLkR_kderiv1, &bvk_ncells, bufL, &d3c,
+                               &D0, bufLkR, &nkkc);
+                        dgemm_(&TRANS_T, &TRANS_T, &nkkc, &d3c, &nLj,
+                               &D1, expLkI_kderiv1, &bvk_ncells, bufL, &d3c,
+                               &D0, bufLkI, &nkkc);
+
+                        for (i = 0; i < d3c; i++) {
+                        for (k = 0; k < nkpts; k++) {
+                        for (kc = 0; kc < kcomp; kc++) {
+                                bufkR[i*nkkc+k*kcomp+kc] += bufLkR[i*nkkc+k*kcomp+kc] * expLkR[iL+bvk_ncells*k]
+                                                          + bufLkI[i*nkkc+k*kcomp+kc] * expLkI[iL+bvk_ncells*k];
+                                bufkI[i*nkkc+k*kcomp+kc] += bufLkI[i*nkkc+k*kcomp+kc] * expLkR[iL+bvk_ncells*k]
+                                                          - bufLkR[i*nkkc+k*kcomp+kc] * expLkI[iL+bvk_ncells*k];
+                        } } }
+                        empty = 0;
+                }
+        }
+        if (!empty) {
+                (*fsort)(outR, outI, bufkR, bufkI, cell0_shls, cell0_ao_loc, envs_bvk);
+        }
+}
+
 void PBCfill_nr3c_ks1(int (*intor)(), double *outR, double *outI, double *cache,
                       int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
 {
@@ -656,6 +842,23 @@ void PBCfill_nr3c_ks2(int (*intor)(), double *outR, double *outI, double *cache,
                 return;
         }
         _fill_k(intor, _sort_ks2, outR, outI, cache, cell0_shls, envs_cint, envs_bvk);
+}
+
+void PBCfill_nr3c_ks1_kderiv1(int (*intor)(), double *outR, double *outI, double *cache,
+                              int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+{
+        _fill_k_kderiv1(intor, _sort_ks1, outR, outI, cache, cell0_shls, envs_cint, envs_bvk);
+}
+
+void PBCfill_nr3c_ks2_kderiv1(int (*intor)(), double *outR, double *outI, double *cache,
+                              int *cell0_shls, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk)
+{
+        int ish_cell0 = cell0_shls[0];
+        int jsh_cell0 = cell0_shls[1];
+        if (ish_cell0 < jsh_cell0) {
+                return;
+        }
+        _fill_k_kderiv1(intor, _sort_ks2, outR, outI, cache, cell0_shls, envs_cint, envs_bvk);
 }
 
 // [i, j, k, comp] in Fortran order => [comp, i, j, k] in C order
@@ -878,7 +1081,7 @@ void PBCfill_nr3c_gs2(int (*intor)(), double *outR, double *outI, double *cache,
 void PBCfill_nr3c_drv(int (*intor)(), FPtrFill fill, int is_pbcintor,
                       double *eriR, double *eriI, double *expLkR, double *expLkI,
                       int *kpt_ij_idx, int kpt_ij_size, int bvk_ncells, int nimgs,
-                      int nkpts, int nbasp, int comp,
+                      int nkpts, int nbasp, int comp, int kcomp,
                       int *sh_loc, int *cell0_ao_loc, int *shls_slice,
                       int8_t *ovlp_mask, int8_t *cell0_ovlp_mask, int *bas_map,
                       double *q_cond, double cutoff, CINTOpt *cintopt, int cache_size,
@@ -900,7 +1103,8 @@ void PBCfill_nr3c_drv(int (*intor)(), FPtrFill fill, int is_pbcintor,
         BVKEnvs envs_bvk = {bvk_ncells, nimgs,
                 nkpts, nkpts, nbasp, comp, 0, kpt_ij_size,
                 sh_loc, cell0_ao_loc, bas_map, shls_slice, kpt_ij_idx,
-                expLkR, expLkI, ovlp_mask, q_cond, cutoff};
+                expLkR, expLkI, ovlp_mask, q_cond, cutoff,
+                .kcomp=kcomp};
 
         // if intor is a regular molecular integral function, calling the
         // general assemble3c function
@@ -935,6 +1139,7 @@ void PBCfill_nr3c_drv(int (*intor)(), FPtrFill fill, int is_pbcintor,
         free(cache);
 }
 }
+
 
 void PBC_nr3c_q_cond(int (*intor)(), CINTOpt *cintopt,
                      double *q_cond, int *shls_slice, int *ao_loc,
