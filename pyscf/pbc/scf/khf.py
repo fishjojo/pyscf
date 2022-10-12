@@ -84,7 +84,7 @@ def get_ovlp(mf, cell=None, kpts=None):
     return s
 
 
-def get_hcore(mf, cell=None, kpts=None):
+def get_hcore(mf, cell=None, kpts=None, kderiv=0):
     '''Get the core Hamiltonian AO matrices at sampled k-points.
 
     Args:
@@ -96,12 +96,12 @@ def get_hcore(mf, cell=None, kpts=None):
     if cell is None: cell = mf.cell
     if kpts is None: kpts = mf.kpts
     if cell.pseudo:
-        nuc = lib.asarray(mf.with_df.get_pp(kpts))
+        nuc = lib.asarray(mf.with_df.get_pp(kpts, kderiv=kderiv))
     else:
         nuc = lib.asarray(mf.with_df.get_nuc(kpts))
     if len(cell._ecpbas) > 0:
         nuc += lib.asarray(ecp.ecp_int(cell, kpts))
-    t = lib.asarray(cell.pbc_intor('int1e_kin', 1, 1, kpts))
+    t = lib.asarray(cell.pbc_intor('int1e_kin', 1, 1, kpts, kderiv=kderiv))
     return nuc + t
 
 

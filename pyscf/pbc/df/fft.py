@@ -61,7 +61,7 @@ def get_nuc(mydf, kpts=None):
         vne = vne[0]
     return numpy.asarray(vne)
 
-def get_pp(mydf, kpts=None):
+def get_pp(mydf, kpts=None, kderiv=0):
     '''Get the periodic pseudotential nuc-el AO matrix, with G=0 removed.
     '''
     from pyscf import gto

@@ -67,7 +67,8 @@ def density_fit(mf, auxbasis=None, mesh=None, with_df=None):
     return mf
 
 
-def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None):
+def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None,
+               kderiv=0):
     log = logger.Logger(mydf.stdout, mydf.verbose)
     t1 = (logger.process_clock(), logger.perf_counter())
     if mydf._cderi is None or not mydf.has_kpts(kpts_band):
@@ -78,6 +79,7 @@ def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None):
         mydf.build(kpts_band=kpts_band)
         t1 = log.timer_debug1('Init get_j_kpts', *t1)
 
+    kcomp = (kderiv+1)*(kderiv+2)//2
     dm_kpts = lib.asarray(dm_kpts, order='C')
     dms = _format_dms(dm_kpts, kpts)
     nset, nkpts, nao = dms.shape[:3]
@@ -91,7 +93,7 @@ def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None):
 
     kpts_band, input_band = _format_kpts_band(kpts_band, kpts), kpts_band
     nband = len(kpts_band)
-    j_real = gamma_point(kpts_band) and not numpy.iscomplexobj(dms)
+    j_real = gamma_point(kpts_band) and not numpy.iscomplexobj(dms) and kderiv == 0
 
     dmsR = dms.real.transpose(0,1,3,2).reshape(nset,nkpts,nao**2)
     dmsI = dms.imag.transpose(0,1,3,2).reshape(nset,nkpts,nao**2)
@@ -117,22 +119,35 @@ def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None):
     weight = 1./nkpts
     rhoR *= weight
     rhoI *= weight
-    vjR = numpy.zeros((nset,nband,nao_pair))
-    vjI = numpy.zeros((nset,nband,nao_pair))
+    if kderiv > 0:
+        vjR = numpy.zeros((nset,nband,kcomp,nao_pair))
+        vjI = numpy.zeros((nset,nband,kcomp,nao_pair))
+    else:
+        vjR = numpy.zeros((nset,nband,nao_pair))
+        vjI = numpy.zeros((nset,nband,nao_pair))
     for k, kpt in enumerate(kpts_band):
         kptii = numpy.asarray((kpt,kpt))
         p1 = 0
-        for LpqR, LpqI, sign in mydf.sr_loop(kptii, max_memory, True):
-            p0, p1 = p1, p1+LpqR.shape[0]
-            #:Lpq = (LpqR + LpqI*1j)#.reshape(-1,nao,nao)
-            #:vjR[:,k] += numpy.dot(rho[:,p0:p1], Lpq).real
-            #:vjI[:,k] += numpy.dot(rho[:,p0:p1], Lpq).imag
-            vjR[:,k] += numpy.dot(rhoR[:,p0:p1], LpqR)
-            if not j_real:
-                vjI[:,k] += numpy.dot(rhoI[:,p0:p1], LpqR)
-                if LpqI is not None:
-                    vjR[:,k] -= numpy.dot(rhoI[:,p0:p1], LpqI)
-                    vjI[:,k] += numpy.dot(rhoR[:,p0:p1], LpqI)
+        for LpqR, LpqI, sign in mydf.sr_loop(kptii, max_memory, True, kderiv=kderiv):
+            if kderiv > 0:
+                p0, p1 = p1, p1+LpqR.shape[1]
+                vjR[:,k] += numpy.einsum('nL,xLp->nxp', rhoR[:,p0:p1], LpqR)
+                if not j_real:
+                    vjI[:,k] += numpy.einsum('nL,xLp->nxp', rhoI[:,p0:p1], LpqR)
+                    if LpqI is not None:
+                        vjR[:,k] -= numpy.einsum('nL,xLp->nxp', rhoI[:,p0:p1], LpqI)
+                        vjI[:,k] += numpy.einsum('nL,xLp->nxp', rhoR[:,p0:p1], LpqI)
+            else:
+                p0, p1 = p1, p1+LpqR.shape[0]
+                #:Lpq = (LpqR + LpqI*1j)#.reshape(-1,nao,nao)
+                #:vjR[:,k] += numpy.dot(rho[:,p0:p1], Lpq).real
+                #:vjI[:,k] += numpy.dot(rho[:,p0:p1], Lpq).imag
+                vjR[:,k] += numpy.dot(rhoR[:,p0:p1], LpqR)
+                if not j_real:
+                    vjI[:,k] += numpy.dot(rhoI[:,p0:p1], LpqR)
+                    if LpqI is not None:
+                        vjR[:,k] -= numpy.dot(rhoI[:,p0:p1], LpqI)
+                        vjI[:,k] += numpy.dot(rhoR[:,p0:p1], LpqI)
             LpqR = LpqI = None
     t1 = log.timer_debug1('get_j pass 2', *t1)
 
@@ -141,15 +156,20 @@ def get_j_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None):
     else:
         vj_kpts = vjR + vjI*1j
     vj_kpts = lib.unpack_tril(vj_kpts.reshape(-1,nao_pair))
-    vj_kpts = vj_kpts.reshape(nset,nband,nao,nao)
+    if kderiv > 0:
+        vj_kpts += vj_kpts.transpose(0,2,1).conj()  #FIXME check if correct
+        vj_kpts = vj_kpts.reshape(nset,nband,kcomp,nao,nao)
+    else:
+        vj_kpts = vj_kpts.reshape(nset,nband,nao,nao)
 
-    return _format_jks(vj_kpts, dm_kpts, input_band, kpts)
+    return _format_jks(vj_kpts, dm_kpts, input_band, kpts, kderiv=kderiv)
 
 
 def get_k_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None,
-               exxdiv=None):
+               exxdiv=None, kderiv=0):
     cell = mydf.cell
     log = logger.Logger(mydf.stdout, mydf.verbose)
+    kcomp = (kderiv+1)*(kderiv+2)//2
 
     if exxdiv is not None and exxdiv != 'ewald':
         log.warn('GDF does not support exxdiv %s. '
@@ -171,14 +191,22 @@ def get_k_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None,
 
     kpts_band, input_band = _format_kpts_band(kpts_band, kpts), kpts_band
     nband = len(kpts_band)
-    vkR = numpy.zeros((nset,nband,nao,nao))
-    vkI = numpy.zeros((nset,nband,nao,nao))
+    if kderiv > 0:
+        vkR = numpy.zeros((nset,nband,kcomp,nao,nao))
+        vkI = numpy.zeros((nset,nband,kcomp,nao,nao))
+    else:
+        vkR = numpy.zeros((nset,nband,nao,nao))
+        vkI = numpy.zeros((nset,nband,nao,nao))
     dmsR = numpy.asarray(dms.real, order='C')
     dmsI = numpy.asarray(dms.imag, order='C')
 
     # K_pq = ( p{k1} i{k2} | i{k2} q{k1} )
     bufR = numpy.empty((mydf.blockdim*nao**2))
     bufI = numpy.empty((mydf.blockdim*nao**2))
+    bufR1 = bufI1 = None
+    if kderiv > 0:
+        bufR1 = numpy.empty((mydf.blockdim*nao**2))
+        bufI1 = numpy.empty((mydf.blockdim*nao**2))
     max_memory = max(2000, mydf.max_memory-lib.current_memory()[0])
     def make_kpt(ki, kj, swap_2e, inverse_idx=None):
         kpti = kpts[ki]
@@ -215,53 +243,94 @@ def get_k_kpts(mydf, dm_kpts, hermi=1, kpts=numpy.zeros((1,3)), kpts_band=None,
                            pLqR.reshape(nao,-1).T, pLqI.reshape(nao,-1).T,
                            sign, vkR[i,ki_tmp], vkI[i,ki_tmp], 1)
 
-    if kpts_band is kpts:  # normal k-points HF/DFT
-        for ki in range(nkpts):
-            for kj in range(ki):
-                make_kpt(ki, kj, True)
-            make_kpt(ki, ki, False)
-            t1 = log.timer_debug1('get_k_kpts: make_kpt ki>=kj (%d,*)'%ki, *t1)
-    else:
-        idx_in_kpts = []
-        for kpt in kpts_band:
-            idx = member(kpt, kpts)
-            if len(idx) > 0:
-                idx_in_kpts.append(idx[0])
-            else:
-                idx_in_kpts.append(-1)
-        idx_in_kpts_band = []
-        for kpt in kpts:
-            idx = member(kpt, kpts_band)
-            if len(idx) > 0:
-                idx_in_kpts_band.append(idx[0])
-            else:
-                idx_in_kpts_band.append(-1)
+    def make_kpt_kderiv(ki, kj):
+        kpti = kpts[ki]
+        kptj = kpts_band[kj]
 
+        blksize = max_memory*1e6/16/((kcomp+1)*nao**2*2)
+        blksize /= 2  # For prefetch
+        blksize = max(16, min(int(blksize), mydf.blockdim))
+
+        for (LpqR, LpqI, sign), (LpqR_kderiv, LpqI_kderiv, _) in \
+            zip(mydf.sr_loop((kpti,kptj), compact=False, blksize=blksize),
+                mydf.sr_loop((kpti,kptj), compact=False, blksize=blksize, kderiv=kderiv)):
+            nrow = LpqR.shape[0]
+            pLqR = numpy.ndarray((nao,nrow,nao), buffer=bufR)
+            pLqI = numpy.ndarray((nao,nrow,nao), buffer=bufI)
+            pLqR_kc = numpy.ndarray((nao,nrow,nao), buffer=bufR1)
+            pLqI_kc = numpy.ndarray((nao,nrow,nao), buffer=bufI1)
+            tmpR = numpy.ndarray((nao,nrow*nao), buffer=LpqR)
+            tmpI = numpy.ndarray((nao,nrow*nao), buffer=LpqI)
+            pLqR[:] = LpqR.reshape(-1,nao,nao).transpose(1,0,2)
+            pLqI[:] = LpqI.reshape(-1,nao,nao).transpose(1,0,2)
+
+
+            for kc in range(kcomp):
+                pLqR_kc[:] = LpqR_kderiv[kc].reshape(-1,nao,nao).transpose(1,0,2)
+                pLqI_kc[:] = LpqI_kderiv[kc].reshape(-1,nao,nao).transpose(1,0,2)
+                for i in range(nset):
+                    zdotNN(dmsR[i,ki], dmsI[i,ki], pLqR_kc.reshape(nao,-1),
+                           pLqI_kc.reshape(nao,-1), 1, tmpR, tmpI)
+                    zdotCN(pLqR.reshape(-1,nao).T, pLqI.reshape(-1,nao).T,
+                           tmpR.reshape(-1,nao), tmpI.reshape(-1,nao),
+                           sign, vkR[i,kj,kc], vkI[i,kj,kc], 1)
+
+    if kderiv > 0:
         for ki in range(nkpts):
             for kj in range(nband):
-                if idx_in_kpts[kj] == -1 or idx_in_kpts[kj] == ki:
-                    make_kpt(ki, kj, False)
-                elif idx_in_kpts[kj] < ki:
-                    if idx_in_kpts_band[ki] == -1:
-                        make_kpt(ki, kj, False)
-                    else:
-                        make_kpt(ki, kj, True, (idx_in_kpts_band[ki], idx_in_kpts[kj]))
+                make_kpt_kderiv(ki, kj)
+                t1 = log.timer_debug1('get_k_kpts: make_kpt ki, kj (%d,%d)'%(ki, kj), *t1)
+    else:
+        if kpts_band is kpts:  # normal k-points HF/DFT
+            for ki in range(nkpts):
+                for kj in range(ki):
+                    make_kpt(ki, kj, True)
+                make_kpt(ki, ki, False)
+                t1 = log.timer_debug1('get_k_kpts: make_kpt ki>=kj (%d,*)'%ki, *t1)
+        else:
+            idx_in_kpts = []
+            for kpt in kpts_band:
+                idx = member(kpt, kpts)
+                if len(idx) > 0:
+                    idx_in_kpts.append(idx[0])
                 else:
-                    if idx_in_kpts_band[ki] == -1:
+                    idx_in_kpts.append(-1)
+            idx_in_kpts_band = []
+            for kpt in kpts:
+                idx = member(kpt, kpts_band)
+                if len(idx) > 0:
+                    idx_in_kpts_band.append(idx[0])
+                else:
+                    idx_in_kpts_band.append(-1)
+
+            for ki in range(nkpts):
+                for kj in range(nband):
+                    if idx_in_kpts[kj] == -1 or idx_in_kpts[kj] == ki:
                         make_kpt(ki, kj, False)
-            t1 = log.timer_debug1('get_k_kpts: make_kpt (%d,*)'%ki, *t1)
+                    elif idx_in_kpts[kj] < ki:
+                        if idx_in_kpts_band[ki] == -1:
+                            make_kpt(ki, kj, False)
+                        else:
+                            make_kpt(ki, kj, True, (idx_in_kpts_band[ki], idx_in_kpts[kj]))
+                    else:
+                        if idx_in_kpts_band[ki] == -1:
+                            make_kpt(ki, kj, False)
+                t1 = log.timer_debug1('get_k_kpts: make_kpt (%d,*)'%ki, *t1)
 
     if (gamma_point(kpts) and gamma_point(kpts_band) and
-        not numpy.iscomplexobj(dm_kpts)):
+        not numpy.iscomplexobj(dm_kpts) and kderiv == 0):
         vk_kpts = vkR
     else:
         vk_kpts = vkR + vkI * 1j
     vk_kpts *= 1./nkpts
 
-    if exxdiv == 'ewald':
+    if kderiv > 0:
+        vk_kpts += vk_kpts.transpose(0,1,2,4,3).conj()  #FIXME check if correct
+
+    if exxdiv == 'ewald' and kderiv == 0:
         _ewald_exxdiv_for_G0(cell, kpts, dms, vk_kpts, kpts_band)
 
-    return _format_jks(vk_kpts, dm_kpts, input_band, kpts)
+    return _format_jks(vk_kpts, dm_kpts, input_band, kpts, kderiv=kderiv)
 
 
 ##################################################
@@ -408,9 +477,14 @@ def _format_kpts_band(kpts_band, kpts):
         kpts_band = numpy.reshape(kpts_band, (-1,3))
     return kpts_band
 
-def _format_jks(v_kpts, dm_kpts, kpts_band, kpts):
+def _format_jks(v_kpts, dm_kpts, kpts_band, kpts, kderiv=0):
+    kcomp = (kderiv+1)*(kderiv+2)//2
     if kpts_band is kpts or kpts_band is None:
-        return v_kpts.reshape(dm_kpts.shape)
+        shape = dm_kpts.shape
+        if kderiv > 0:
+            shape = list(shape)
+            shape.insert(-2, kcomp)
+        return v_kpts.reshape(shape)
     else:
         if getattr(kpts_band, 'ndim', None) == 1:
             v_kpts = v_kpts[:,0]

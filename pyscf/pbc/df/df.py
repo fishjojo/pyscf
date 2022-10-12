@@ -379,8 +379,11 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
     # core DM in CASCI). An SCF level exxdiv treatment is inadequate for
     # post-HF methods.
     def get_jk(self, dm, hermi=1, kpts=None, kpts_band=None,
-               with_j=True, with_k=True, omega=None, exxdiv=None):
+               with_j=True, with_k=True, omega=None, exxdiv=None,
+               kderiv=0):
         if omega is not None:  # J/K for RSH functionals
+            if kderiv > 0:
+                raise NotImplementedError
             cell = self.cell
             # * AFT is computationally more efficient than GDF if the Coulomb
             #   attenuation tends to the long-range role (i.e. small omega).
@@ -410,14 +413,16 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         kpts = numpy.asarray(kpts)
 
         if kpts.shape == (3,):
+            if kderiv > 0:
+                raise NotImplementedError
             return df_jk.get_jk(self, dm, hermi, kpts, kpts_band, with_j,
                                 with_k, exxdiv)
 
         vj = vk = None
         if with_k:
-            vk = df_jk.get_k_kpts(self, dm, hermi, kpts, kpts_band, exxdiv)
+            vk = df_jk.get_k_kpts(self, dm, hermi, kpts, kpts_band, exxdiv, kderiv=kderiv)
         if with_j:
-            vj = df_jk.get_j_kpts(self, dm, hermi, kpts, kpts_band)
+            vj = df_jk.get_j_kpts(self, dm, hermi, kpts, kpts_band, kderiv=kderiv)
         return vj, vk
 
     get_eri = get_ao_eri = df_ao2mo.get_eri
@@ -467,9 +472,9 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         # self._cderi['j3c/k_id/seg_id']
         with addons.load(self._cderi, 'j3c/0') as feri:
             if isinstance(feri, h5py.Group):
-                naux = feri['0'].shape[0]
+                naux = feri['0'].shape[-2]
             else:
-                naux = feri.shape[0]
+                naux = feri.shape[-2]
 
         cell = self.cell
         if (cell.dimension == 2 and cell.low_dim_ft_type != 'inf_vacuum' and
@@ -478,9 +483,9 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
                 if 'j3c-/0' in feri:
                     dat = feri['j3c-/0']
                     if isinstance(dat, h5py.Group):
-                        naux += dat['0'].shape[0]
+                        naux += dat['0'].shape[-2]
                     else:
-                        naux += dat.shape[0]
+                        naux += dat.shape[-2]
         return naux
 
 DF = GDF

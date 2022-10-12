@@ -226,7 +226,7 @@ def cart2polar(rvec):
     return r, theta, phi
 
 
-def get_pp(cell, kpt=np.zeros(3)):
+def get_pp(cell, kpt=np.zeros(3), kderiv=0):
     '''Get the periodic pseudotential nuc-el AO matrix
     '''
     from pyscf.pbc import tools
