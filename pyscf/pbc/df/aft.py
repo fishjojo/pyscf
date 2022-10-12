@@ -221,7 +221,7 @@ def get_pp(mydf, kpts=None, kderiv=0):
     '''
     t0 = (logger.process_clock(), logger.perf_counter())
     dfbuilder = _IntNucBuilder(mydf.cell, kpts)
-    vpp = dfbuilder.get_pp(mydf.mesh, kderiv)
+    vpp = dfbuilder.get_pp(mydf.mesh, kderiv=kderiv)
     if kpts is None or numpy.shape(kpts) == (3,):
         vpp = vpp[0]
     logger.timer(mydf, 'get_pp', *t0)

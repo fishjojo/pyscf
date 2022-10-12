@@ -209,7 +209,6 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         if self.mesh is not None:
             log.info('mesh = %s (%d PWs)', self.mesh, numpy.prod(self.mesh))
         log.info('exp_to_discard = %s', self.exp_to_discard)
-        log.info('kderiv = %s', self.kderiv)
         if isinstance(self._cderi, str):
             log.info('_cderi = %s  where DF integrals are loaded (readonly).',
                      self._cderi)
@@ -308,20 +307,21 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
                             len(member(kpt, self.kpts_band))>0) for kpt in kpts)
 
     def sr_loop(self, kpti_kptj=numpy.zeros((2,3)), max_memory=2000,
-                compact=True, blksize=None):
+                compact=True, blksize=None, kderiv=0):
         '''Short range part'''
         if self._cderi is None:
             self.build()
         cell = self.cell
         kpti, kptj = kpti_kptj
         unpack = is_zero(kpti-kptj) and not compact
-        is_real = is_zero(kpti_kptj)
+        is_real = is_zero(kpti_kptj) and kderiv == 0
         nao = cell.nao_nr()
+        kcomp = (kderiv+1)*(kderiv+2)//2
         if blksize is None:
             if is_real:
                 blksize = max_memory*1e6/8/(nao**2*2)
             else:
-                blksize = max_memory*1e6/16/(nao**2*2)
+                blksize = max_memory*1e6/16/(kcomp*nao**2*2)
             blksize /= 2  # For prefetch
             blksize = max(16, min(int(blksize), self.blockdim))
             logger.debug3(self, 'max_memory %d MB, blksize %d', max_memory, blksize)
@@ -341,16 +341,20 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
                 LpqR = numpy.asarray(Lpq.real, order='C')
                 LpqI = numpy.asarray(Lpq.imag, order='C')
                 Lpq = None
-                if compact and LpqR.shape[1] == nao**2:
-                    LpqR = lib.pack_tril(LpqR.reshape(naux,nao,nao))
-                    LpqI = lib.pack_tril(LpqI.reshape(naux,nao,nao))
-                elif unpack and LpqR.shape[1] != nao**2:
-                    LpqR = lib.unpack_tril(LpqR).reshape(naux,nao**2)
-                    LpqI = lib.unpack_tril(LpqI, lib.ANTIHERMI).reshape(naux,nao**2)
+                if compact and LpqR.shape[-1] == nao**2:
+                    LpqR = lib.pack_tril(LpqR.reshape(-1,nao,nao))
+                    LpqI = lib.pack_tril(LpqI.reshape(-1,nao,nao))
+                elif unpack and LpqR.shape[-1] != nao**2:
+                    LpqR = lib.unpack_tril(LpqR.reshape(kcomp*naux,-1)).reshape(-1,nao**2)
+                    LpqI = lib.unpack_tril(LpqI.reshape(kcomp*naux,-1), lib.ANTIHERMI).reshape(-1,nao**2)
+                if kderiv > 0:
+                    LpqR = LpqR.reshape(kcomp,naux,-1)
+                    LpqI = LpqI.reshape(kcomp,naux,-1)
             return LpqR, LpqI
 
-        with _load3c(self._cderi, 'j3c', kpti_kptj) as j3c:
-            slices = lib.prange(0, j3c.shape[0], blksize)
+        dataname = 'j3c_kderiv' if kderiv > 0 else 'j3c'
+        with _load3c(self._cderi, dataname, kpti_kptj) as j3c:
+            slices = lib.prange(0, j3c.shape[-2], blksize)
             for LpqR, LpqI in lib.map_with_prefetch(load, slices):
                 yield LpqR, LpqI, 1
                 LpqR = LpqI = None
@@ -358,8 +362,9 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         if cell.dimension == 2 and cell.low_dim_ft_type != 'inf_vacuum':
             # Truncated Coulomb operator is not postive definite. Load the
             # CDERI tensor of negative part.
-            with _load3c(self._cderi, 'j3c-', kpti_kptj, ignore_key_error=True) as j3c:
-                slices = lib.prange(0, j3c.shape[0], blksize)
+            dataname = 'j3c_kderiv-' if kderiv > 0 else 'j3c-'
+            with _load3c(self._cderi, dataname, kpti_kptj, ignore_key_error=True) as j3c:
+                slices = lib.prange(0, j3c.shape[-2], blksize)
                 for LpqR, LpqI in lib.map_with_prefetch(load, slices):
                     yield LpqR, LpqI, -1
                     LpqR = LpqI = None
@@ -753,20 +758,39 @@ class _KPair3CLoader:
     def __getitem__(self, s):
         if self.aosym == 's1' or self.kikj == self.kjki:
             dat = self.dat[str(self.kikj)]
-            out = numpy.hstack([dat[str(i)][s] for i in range(self.nsegs)])
+            out = numpy.concatenate([dat[str(i)][s] for i in range(self.nsegs)], axis=-1)
         elif self.aosym == 's2':
             dat_ij = self.dat[str(self.kikj)]
             dat_ji = self.dat[str(self.kjki)]
-            tril = numpy.hstack([dat_ij[str(i)][s] for i in range(self.nsegs)])
-            triu = numpy.hstack([dat_ji[str(i)][s] for i in range(self.nsegs)])
+            tril = numpy.concatenate([dat_ij[str(i)][s] for i in range(self.nsegs)], axis=-1)
+            triu = numpy.concatenate([dat_ji[str(i)][s] for i in range(self.nsegs)], axis=-1)
             assert tril.dtype == numpy.complex128
-            naux, nao_pair = tril.shape
+            kcomp = 1
+            if len(tril.shape) == 2:
+                naux, nao_pair = tril.shape
+            elif len(tril.shape) == 3:
+                kcomp, naux, nao_pair = tril.shape
+            else:
+                raise RuntimeError
             nao = int((nao_pair * 2)**.5)
-            out = numpy.empty((naux, nao*nao), dtype=tril.dtype)
-            libpbc.PBCunpack_tril_triu(out.ctypes.data_as(ctypes.c_void_p),
-                                       tril.ctypes.data_as(ctypes.c_void_p),
-                                       triu.ctypes.data_as(ctypes.c_void_p),
-                                       ctypes.c_int(naux), ctypes.c_int(nao))
+            if kcomp == 1:
+                out = numpy.empty((naux, nao*nao), dtype=tril.dtype)
+                libpbc.PBCunpack_tril_triu(out.ctypes.data_as(ctypes.c_void_p),
+                                           tril.ctypes.data_as(ctypes.c_void_p),
+                                           triu.ctypes.data_as(ctypes.c_void_p),
+                                           ctypes.c_int(naux), ctypes.c_int(nao))
+            else:
+                out = []
+                for kc in range(kcomp):
+                    out_kc = numpy.empty((naux, nao*nao), dtype=tril.dtype)
+                    tril_kc = numpy.asarray(tril[kc], order='C')
+                    triu_kc = numpy.asarray(triu[kc], order='C')
+                    libpbc.PBCunpack_tril_triu(out_kc.ctypes.data_as(ctypes.c_void_p),
+                                               tril_kc.ctypes.data_as(ctypes.c_void_p),
+                                               triu_kc.ctypes.data_as(ctypes.c_void_p),
+                                               ctypes.c_int(naux), ctypes.c_int(nao))
+                    out.append(out_kc)
+                out = numpy.asarray(out)
         else:
             raise ValueError(f'Unknown aosym {self.aosym}')
         return out
@@ -779,13 +803,17 @@ class _KPair3CLoader:
     def shape(self):
         dat = self.dat[str(self.kikj)]
         shapes = [dat[str(i)].shape for i in range(self.nsegs)]
-        naux = shapes[0][0]
-        nao_pair = sum([shape[1] for shape in shapes])
+        naux = shapes[0][-2]
+        nao_pair = sum([shape[-1] for shape in shapes])
         if self.aosym == 's1' or self.kikj == self.kjki:
-            return (naux, nao_pair)
+            j3c_shape = (naux, nao_pair)
         else:
             nao = int((nao_pair * 2)**.5)
-            return (naux, nao*nao)
+            j3c_shape = (naux, nao*nao)
+        if len(shapes[0]) == 3:
+            kcomp = shapes[0][0]
+            j3c_shape = (kcomp,) + j3c_shape
+        return j3c_shape
 
 def _gaussian_int(cell):
     r'''Regular gaussian integral \int g(r) dr^3'''

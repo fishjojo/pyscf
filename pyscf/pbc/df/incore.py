@@ -500,7 +500,7 @@ class _IntNucBuilder(_Int3cBuilder):
             tmp = []
             for k in range(nkpts):
                 v = lib.unpack_tril(mat[k])
-                v+= v.transpose(0,2,1).conj()
+                v+= v.transpose(0,2,1).conj() #FIXME check if correct
                 tmp.append(lib.pack_tril(v))
             mat = np.asarray(tmp)
 
