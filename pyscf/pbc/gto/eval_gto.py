@@ -23,6 +23,7 @@ from pyscf.gto import moleintor
 from pyscf.gto.eval_gto import _get_intor_and_comp, BLKSIZE
 from pyscf.pbc.gto import _pbcintor
 from pyscf import __config__
+from pyscf.lib import stop_grad
 
 EXTRA_PREC = getattr(__config__, 'pbc_gto_eval_gto_extra_precision', 1e-2)
 
@@ -137,6 +138,7 @@ def eval_gto(cell, eval_name, coords, comp=None, kpts=None, kpt=None,
         else:
             Ls = cell.get_lattice_Ls(dimension=3)
         Ls = Ls[numpy.argsort(lib.norm(Ls, axis=1))]
+    Ls = numpy.asarray(stop_grad(Ls))
     expLk = numpy.exp(1j * numpy.asarray(numpy.dot(Ls, kpts_lst.T), order='C'))
     if rcut is None:
         rcut = _estimate_rcut(cell)

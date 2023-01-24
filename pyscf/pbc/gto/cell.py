@@ -387,6 +387,7 @@ def intor_cross(intor, cell1, cell2, comp=None, hermi=0, kpts=None, kpt=None,
         Ls = cell1.get_lattice_Ls(rcut=rcut, dimension=cell1.dimension)
     else:
         Ls = cell1.get_lattice_Ls(rcut=rcut, dimension=3)
+    Ls = numpy.asarray(stop_grad(Ls))
     expkL = numpy.asarray(numpy.exp(1j*numpy.dot(kpts_lst, Ls.T)), order='C')
     drv = libpbc.PBCnr2c_drv
 
@@ -475,11 +476,11 @@ def _estimate_rcut(alpha, l, c, precision=INTEGRAL_PRECISION):
     r0 = 20
     # lattice_sum_penalty is the factor in terms of lattice sum in overlap
     # integrals
-    lattice_sum_penalty = 4 * np.pi * r0 / alpha
+    lattice_sum_penalty = 4 * numpy.pi * r0 / alpha
     C = c**2*(2*l+1)*alpha / precision * lattice_sum_penalty
     # +1. to ensure np.log returning positive value
-    r0 = np.sqrt(2.*np.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
-    rcut = np.sqrt(2.*np.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
+    r0 = numpy.sqrt(2.*numpy.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
+    rcut = numpy.sqrt(2.*numpy.log(C*(r0**2*alpha)**(l+1)+1.) / alpha)
     return rcut
 
 def bas_rcut(cell, bas_id, precision=INTEGRAL_PRECISION):
@@ -746,7 +747,7 @@ def get_ewald_params(cell, precision=None, mesh=None):
         ew_cut = _estimate_rcut(ew_eta**2, 0, 1., precision)
     return ew_eta, ew_cut
 
-MESH_FOR_EWALD = np.array([15] * 3)
+MESH_FOR_EWALD = numpy.array([15] * 3)
 
 def _cut_mesh_for_ewald(cell, mesh):
     if cell.dimension == 3:
@@ -758,7 +759,7 @@ def _cut_mesh_for_ewald(cell, mesh):
         mesh[cell.dimension:] = cell.mesh[cell.dimension:]
     else:  # dimension == 2
         # roughly 2 grids per bohr
-        mesh[2] = int(np.linalg.norm(cell.lattice_vectors()[2])) * 2 + 1
+        mesh[2] = int(numpy.linalg.norm(stop_grad(cell.lattice_vectors())[2])) * 2 + 1
     return mesh
 
 def ewald(cell, ew_eta=None, ew_cut=None):

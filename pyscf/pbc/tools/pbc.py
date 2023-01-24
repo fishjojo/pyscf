@@ -687,17 +687,17 @@ def cutoff_to_mesh(a, cutoff):
     '''
     # Let E(mesh_x) = min_{y, z}(|mesh_x*b[0]+y*b[1]+z*b[2]|^2)
     # Search largest mesh_x requiring E(mesh_x) <= 2*cutoff
-    b = 2 * np.pi * np.linalg.inv(a.T)
+    b = 2 * numpy.pi * numpy.linalg.inv(stop_grad(a).T)
     c = b.dot(b.T)
     # r is the ratio between G of each direction when E(mesh) reaches minimum
-    r = np.linalg.inv(c) / np.linalg.det(c)
+    r = numpy.linalg.inv(c) / numpy.linalg.det(c)
     r /= r.diagonal()[:,None]
-    Gmax = (2*cutoff / (np.linalg.norm(r.dot(b), axis=1)**2))**.5
+    Gmax = (2*cutoff / (numpy.linalg.norm(r.dot(b), axis=1)**2))**.5
     # off-diagonal r may be > 1, means that the ke_cutoff is limited by the
     # off-diagonal part
     # e.g r[:,2] = [1, .5, 1.2], Gx = max(Gx, Gy*.5, Gz*1.2)
     Gmax = (r * Gmax[:,None]).max(axis=0)
-    mesh = np.ceil(Gmax).astype(int) * 2 + 1
+    mesh = numpy.ceil(Gmax).astype(int) * 2 + 1
     return mesh
 
 def mesh_to_cutoff(a, mesh):
