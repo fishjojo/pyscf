@@ -75,11 +75,11 @@ def general(mol, mo_coeffs, erifile, dataname='eri_mo',
         if h5py.is_hdf5(erifile):
             feri = h5py.File(erifile, 'a')
             if dataname in feri:
-                del(feri[dataname])
+                del (feri[dataname])
         else:
             feri = h5py.File(erifile, 'w')
     else:
-        assert(isinstance(erifile, h5py.Group))
+        assert (isinstance(erifile, h5py.Group))
         feri = erifile
 
     if comp == 1:
@@ -122,7 +122,7 @@ def general(mol, mo_coeffs, erifile, dataname='eri_mo',
     ao_loc = numpy.asarray(mol.ao_loc_2c(), dtype=numpy.int32)
     tao = numpy.asarray(mol.tmap(), dtype=numpy.int32)
     ti0 = time_1pass
-    buf = numpy.empty((e2buflen, nao_pair), dtype=numpy.complex)
+    buf = numpy.empty((e2buflen, nao_pair), dtype=numpy.complex128)
     istep = 0
     for row0, row1 in prange(0, nij_pair, e2buflen):
         nrow = row1 - row0
@@ -226,7 +226,7 @@ def half_e1(mol, mo_coeffs, swapfile,
         log.debug('step 1 [%d/%d], AO [%d:%d], len(buf) = %d',
                   istep+1, nstep, *(sh_range[:3]))
         buflen = sh_range[2]
-        iobuf = numpy.empty((comp,buflen,nij_pair), dtype=numpy.complex)
+        iobuf = numpy.empty((comp,buflen,nij_pair), dtype=numpy.complex128)
         nmic = len(sh_range[3])
         p0 = 0
         for imic, aoshs in enumerate(sh_range[3]):
@@ -307,7 +307,7 @@ def _count_naopair(mol, nao):
             nao_pair += di * dj
     return nao_pair
 
-del(MAX_MEMORY)
+del (MAX_MEMORY)
 
 
 if __name__ == '__main__':
@@ -326,7 +326,7 @@ if __name__ == '__main__':
     numpy.random.seed(1)
     mo = numpy.random.random((n2c,n2c)) + numpy.random.random((n2c,n2c))*1j
 
-    eri0 = numpy.empty((n2c,n2c,n2c,n2c), dtype=numpy.complex)
+    eri0 = numpy.empty((n2c,n2c,n2c,n2c), dtype=numpy.complex128)
     pi = 0
     for i in range(mol.nbas):
         pj = 0

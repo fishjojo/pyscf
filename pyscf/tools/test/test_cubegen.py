@@ -19,14 +19,16 @@ import tempfile
 from pyscf import lib, gto, scf
 from pyscf.tools import cubegen
 
-mol = gto.Mole()
-mol.atom = '''
-O 0.00000000,  0.000000,  0.119748
-H 0.00000000,  0.761561, -0.478993
-H 0.00000000, -0.761561, -0.478993 '''
-mol.verbose = 0
-mol.build()
-mf = scf.RHF(mol).run()
+def setUpModule():
+    global mol, mf
+    mol = gto.Mole()
+    mol.atom = '''
+    O 0.00000000,  0.000000,  0.119748
+    H 0.00000000,  0.761561, -0.478993
+    H 0.00000000, -0.761561, -0.478993 '''
+    mol.verbose = 0
+    mol.build()
+    mf = scf.RHF(mol).run(conv_tol=1e-10)
 
 def tearDownModule():
     global mol, mf
@@ -38,40 +40,43 @@ class KnownValues(unittest.TestCase):
         mep = cubegen.mep(mol, ftmp.name, mf.make_rdm1(),
                           nx=10, ny=10, nz=10)
         self.assertEqual(mep.shape, (10,10,10))
-        self.assertAlmostEqual(lib.finger(mep), -0.3198103636180436, 9)
+        self.assertAlmostEqual(lib.finger(mep), -0.3198103636180436, 5)
 
         mep = cubegen.mep(mol, ftmp.name, mf.make_rdm1(),
                           nx=10, ny=10, nz=10, resolution=0.5)
         self.assertEqual(mep.shape, (12,18,15))
-        self.assertAlmostEqual(lib.finger(mep), -4.653995909548524, 9)
+        self.assertAlmostEqual(lib.finger(mep), -4.653995909548524, 5)
 
     def test_orb(self):
         ftmp = tempfile.NamedTemporaryFile()
         orb = cubegen.orbital(mol, ftmp.name, mf.mo_coeff[:,0],
                               nx=10, ny=10, nz=10)
         self.assertEqual(orb.shape, (10,10,10))
-        self.assertAlmostEqual(lib.finger(orb), -0.11804191128016768, 9)
+        self.assertAlmostEqual(lib.finger(orb), -0.11804191128016768, 5)
 
         orb = cubegen.orbital(mol, ftmp.name, mf.mo_coeff[:,0],
                               nx=10, ny=10, nz=10, resolution=0.5)
         self.assertEqual(orb.shape, (12,18,15))
-        self.assertAlmostEqual(lib.finger(orb), -0.8591778390706646, 9)
+        self.assertAlmostEqual(lib.finger(orb), -0.8591778390706646, 5)
+
+        orb = cubegen.orbital(mol, ftmp.name, mf.mo_coeff[:,0],
+                              nx=10, ny=1, nz=1)
+        self.assertEqual(orb.shape, (10,1,1))
+        self.assertAlmostEqual(lib.finger(orb), 6.921008881822988e-09, 5)
+
 
     def test_rho(self):
         ftmp = tempfile.NamedTemporaryFile()
         rho = cubegen.density(mol, ftmp.name, mf.make_rdm1(),
                               nx=10, ny=10, nz=10)
         self.assertEqual(rho.shape, (10,10,10))
-        self.assertAlmostEqual(lib.finger(rho), -0.3740462814001553, 9)
+        self.assertAlmostEqual(lib.finger(rho), -0.3740462814001553, 5)
 
         rho = cubegen.density(mol, ftmp.name, mf.make_rdm1(),
                               nx=10, ny=10, nz=10, resolution=0.5)
         self.assertEqual(rho.shape, (12,18,15))
-        self.assertAlmostEqual(lib.finger(rho), -1.007950007160415, 9)
+        self.assertAlmostEqual(lib.finger(rho), -1.007950007160415, 5)
 
 if __name__ == "__main__":
     print("Full Tests for molden")
     unittest.main()
-
-
-

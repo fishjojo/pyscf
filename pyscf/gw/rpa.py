@@ -19,11 +19,13 @@
 """
 Spin-restricted random phase approximation (direct RPA/dRPA in chemistry)
 with N^4 scaling
+
 Method:
     Main routines are based on GW-AC method descirbed in:
     T. Zhu and G.K.-L. Chan, J. Chem. Theory. Comput. 17, 727-741 (2021)
     X. Ren et al., New J. Phys. 14, 053020 (2012)
 """
+
 import numpy
 from pyscf import numpy as np
 from pyscf import lib
@@ -32,7 +34,6 @@ from pyscf.ao2mo import _ao2mo
 from pyscf import df, scf
 from pyscf.mp.mp2 import get_nocc, get_nmo, get_frozen_mask
 
-
 # ****************************************************************************
 # core routines, kernel, rpa_ecorr, rho_response
 # ****************************************************************************
@@ -40,10 +41,12 @@ from pyscf.mp.mp2 import get_nocc, get_nmo, get_frozen_mask
 def kernel(rpa, mo_energy, mo_coeff, Lpq=None, nw=None, verbose=logger.NOTE):
     """
     RPA correlation and total energy
+
     Args:
         Lpq : density fitting 3-center integral in MO basis.
         nw : number of frequency point on imaginary axis.
         vhf_df : using density fitting integral to compute HF exchange.
+
     Returns:
         e_tot : RPA total energy
         e_hf : EXX energy
@@ -95,7 +98,7 @@ def get_rpa_ecorr(rpa, Lpq, freqs, wts):
         Pi = get_rho_response(freqs[w], mo_energy, Lpq[:, :nocc, nocc:])
         ec_w = np.log(np.linalg.det(np.eye(naux) - Pi))
         ec_w += np.trace(Pi)
-        e_corr += 1./(2.*numpy.pi) * ec_w * wts[w]
+        e_corr += 1./(2.*np.pi) * ec_w * wts[w]
 
     return e_corr
 
@@ -120,6 +123,7 @@ def _get_scaled_legendre_roots(nw, x0=0.5):
     Scale nw Legendre roots, which lie in the
     interval [-1, 1], so that they lie in [0, inf)
     Ref: www.cond-mat.de/events/correl19/manuscripts/ren.pdf
+
     Returns:
         freqs : 1D array
         wts : 1D array
@@ -224,6 +228,7 @@ class RPA(lib.StreamObject):
             mo_coeff : 2D array (nmo, nmo), mean-field mo coefficient
             Lpq : 3D array (naux, nmo, nmo), 3-index ERI
             nw: interger, grid number
+
         Returns:
             self.e_tot : RPA total eenrgy
             self.e_hf : EXX energy
@@ -278,5 +283,5 @@ if __name__ == '__main__':
     rpa = RPA(mf)
     rpa.kernel()
     print ('RPA e_tot, e_hf, e_corr = ', rpa.e_tot, rpa.e_hf, rpa.e_corr)
-    assert(abs(rpa.e_corr- -0.30783004035780076) < 1e-6)
-    assert(abs(rpa.e_tot- -76.26428191794182) < 1e-6)
+    assert (abs(rpa.e_corr- -0.30783004035780076) < 1e-6)
+    assert (abs(rpa.e_tot- -76.26428191794182) < 1e-6)
