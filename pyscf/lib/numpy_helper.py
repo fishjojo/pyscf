@@ -937,6 +937,12 @@ else:
     norm = numpy.linalg.norm
 del (LooseVersion)
 
+def cond(x, p=None):
+    '''Compute the condition number'''
+    if isinstance(x, numpy.ndarray) and x.ndim == 2 or p is not None:
+        return numpy.linalg.cond(x, p)
+    else:
+        return numpy.asarray([numpy.linalg.cond(xi) for xi in x])
 
 def cartesian_prod(arrays, out=None):
     '''

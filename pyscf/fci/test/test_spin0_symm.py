@@ -88,7 +88,7 @@ class KnownValues(unittest.TestCase):
         e = fci.direct_spin0_symm.energy(h1e, g2e, c, norb, nelec)
         self.assertAlmostEqual(e, -84.200905534209554, 8)
 
-        eref = fci_slow.kernel(h1e, g2e, norb, nelec)
+        eref = fci_slow.kernel(h1e, g2e, norb, nelec)[0]
         self.assertAlmostEqual(e, eref, 9)
 
     def test_linearmole(self):

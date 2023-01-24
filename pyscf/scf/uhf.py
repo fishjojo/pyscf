@@ -243,7 +243,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
              diis_start_cycle=None, level_shift_factor=None, damp_factor=None):
     if h1e is None: h1e = mf.get_hcore()
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
-    f = numpy.asarray(h1e) + vhf
+    f = np.asarray(h1e) + vhf
     if f.ndim == 2:
         f = (f, f)
     if cycle < 0 and diis is None:  # Not inside the SCF iteration

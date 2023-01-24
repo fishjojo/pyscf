@@ -136,7 +136,7 @@ def absorb_h1e(h1e, eri, norb, nelec, fac=1):
     if eri.size != norb**4:
         h2e = ao2mo.restore(1, eri.copy(), norb)
     else:
-        h2e = eri
+        h2e = eri.copy().reshape(norb,norb,norb,norb)
     f1e = h1e - np.einsum('jiik->jk', h2e) * .5
     f1e = f1e * (1./(nelec+1e-100))
     for k in range(norb):
@@ -156,6 +156,8 @@ def make_hdiag(h1e, eri, norb, nelec, opt=None):
     occslistb = cistring._gen_occslst(range(norb), nelecb)
     if eri.size != norb**4:
         eri = ao2mo.restore(1, eri, norb)
+    else:
+        eri = eri.reshape(norb,norb,norb,norb)
     diagj = np.einsum('iijj->ij', eri)
     diagk = np.einsum('ijji->ij', eri)
     hdiag = []
