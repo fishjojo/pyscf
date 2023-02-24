@@ -153,6 +153,12 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         mf_diis = mf.DIIS(mf, mf.diis_file)
         mf_diis.space = mf.diis_space
         mf_diis.rollback = mf.diis_space_rollback
+
+        # We get the used orthonormalized AO basis from any old eigendecomposition.
+        # Since the ingredients for the Fock matrix has already been built, we can
+        # just go ahead and use it to determine the orthonormal basis vectors.
+        fock = mf.get_fock(h1e, s1e, vhf, dm)
+        _, mf_diis.Corth = mf.eig(fock, s1e)
     else:
         mf_diis = None
 
@@ -539,7 +545,7 @@ def _init_guess_huckel_orbitals(mol):
     nocc = 0
     for ia in range(mol.natm):
         for iorb in range(len(at_occ[ia])):
-            if(at_occ[ia][iorb]>0.0):
+            if (at_occ[ia][iorb]>0.0):
                 nocc=nocc+1
 
     # Number of basis functions
@@ -573,7 +579,7 @@ def _init_guess_huckel_orbitals(mol):
         aend = aoslice[ia, 3]
 
         for iorb in range(len(at_occ[ia])):
-            if(at_occ[ia][iorb]>0.0):
+            if (at_occ[ia][iorb]>0.0):
                 if mol.cart:
                     orb_C[abeg:aend,iocc] = numpy.dot(at_c[ia][:,iorb], atcart2sph[ia].T)
                 else:
@@ -669,6 +675,8 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
             Orbital coefficients. Each column is one orbital.
         mo_occ : 1D ndarray
             Occupancy
+    Returns:
+        One-particle density matrix, 2D ndarray
     '''
     mocc = mo_coeff[:,mo_occ>0]
 # DO NOT make tag_array for dm1 here because this DM array may be modified and
@@ -677,6 +685,21 @@ def make_rdm1(mo_coeff, mo_occ, **kwargs):
 # array and modifications to DM array may be ignored.
     return numpy.dot(mocc*mo_occ[mo_occ>0], mocc.conj().T)
 
+def make_rdm2(mo_coeff, mo_occ, **kwargs):
+    '''Two-particle density matrix in AO representation
+
+    Args:
+        mo_coeff : 2D ndarray
+            Orbital coefficients. Each column is one orbital.
+        mo_occ : 1D ndarray
+            Occupancy
+    Returns:
+        Two-particle density matrix, 4D ndarray
+    '''
+    dm1 = make_rdm1(mo_coeff, mo_occ, **kwargs)
+    dm2 = (numpy.einsum('ij,kl->ijkl', dm1, dm1)
+         - numpy.einsum('ij,kl->iklj', dm1, dm1)/2)
+    return dm2
 
 ################################################
 # for general DM
@@ -1199,7 +1222,7 @@ def dip_moment(mol, dm, unit='Debye', verbose=logger.NOTE, **kwargs):
         unit = kwargs['unit_symbol']
 
     if not (isinstance(dm, numpy.ndarray) and dm.ndim == 2):
-        # UHF denisty matrices
+        # UHF density matrices
         dm = dm[0] + dm[1]
 
     with mol.with_common_orig((0,0,0)):
@@ -1410,7 +1433,7 @@ class SCF(lib.StreamObject):
     max_cycle = getattr(__config__, 'scf_hf_SCF_max_cycle', 50)
     init_guess = getattr(__config__, 'scf_hf_SCF_init_guess', 'minao')
 
-    # To avoid diis pollution form previous run, self.diis should not be
+    # To avoid diis pollution from previous run, self.diis should not be
     # initialized as DIIS instance here
     DIIS = diis.SCF_DIIS
     diis = getattr(__config__, 'scf_hf_SCF_diis', True)
@@ -1418,8 +1441,7 @@ class SCF(lib.StreamObject):
     # need > 0 if initial DM is numpy.zeros array
     diis_start_cycle = getattr(__config__, 'scf_hf_SCF_diis_start_cycle', 1)
     diis_file = None
-    # Give diis_space_rollback=True a trial if all other methods do not converge
-    diis_space_rollback = False
+    diis_space_rollback = 0
 
     damp = getattr(__config__, 'scf_hf_SCF_damp', 0)
     level_shift = getattr(__config__, 'scf_hf_SCF_level_shift', 0)
@@ -1627,6 +1649,12 @@ class SCF(lib.StreamObject):
         if mo_occ is None: mo_occ = self.mo_occ
         if mo_coeff is None: mo_coeff = self.mo_coeff
         return make_rdm1(mo_coeff, mo_occ, **kwargs)
+
+    @lib.with_doc(make_rdm2.__doc__)
+    def make_rdm2(self, mo_coeff=None, mo_occ=None, **kwargs):
+        if mo_occ is None: mo_occ = self.mo_occ
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        return make_rdm2(mo_coeff, mo_occ, **kwargs)
 
     energy_elec = energy_elec
     energy_tot = energy_tot
@@ -2101,7 +2129,7 @@ def _hf1e_scf(mf, *args):
     return mf.e_tot
 
 
-del(WITH_META_LOWDIN, PRE_ORTH_METHOD)
+del (WITH_META_LOWDIN, PRE_ORTH_METHOD)
 
 
 if __name__ == '__main__':
