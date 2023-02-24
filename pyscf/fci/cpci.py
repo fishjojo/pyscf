@@ -1,17 +1,17 @@
-from pyscf.fci import direct_spin1 
+from pyscf.fci import direct_spin1
 from pyscf.fci import rdm as fci_rdm
 
 import scipy.sparse.linalg as sla
 import numpy as np
 
-def solve(h1e, eri, ECI, ci, dHc, norb, nelec, 
+def solve(h1e, eri, ECI, ci, dHc, norb, nelec,
         dci0=None, tol=1e-9, max_cycle=20):
     '''
-    solve for dc^CI / dR from 
-    (H^CI - E^CI + 2 c^CI \outer c^CI) dc^CI / dR = dHc
+    solve for dc^CI / dR from
+    (H^CI - E^CI + 2 c^CI outer c^CI) dc^CI / dR = dHc
     i.e. M dc = dHc
 
-    the solution is c^CI response if dHc = d(E^CI-H^CI) / dR \dot c^CI
+    the solution is c^CI response if dHc = d(E^CI-H^CI) / dR dot c^CI
 
     h1e: 1e integral
     eri: 2e integral
@@ -19,7 +19,8 @@ def solve(h1e, eri, ECI, ci, dHc, norb, nelec,
     ci:  CI vector
     '''
     lidxa, lidxb = direct_spin1._unpack(norb, nelec, None)
-    Na = lidxa.shape[0]; Nb = lidxb.shape[0]
+    Na = lidxa.shape[0]
+    Nb = lidxb.shape[0]
 
     h2e = direct_spin1.absorb_h1e(h1e, eri, norb, nelec, 0.5)
 
