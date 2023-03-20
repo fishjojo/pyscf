@@ -12,13 +12,21 @@
 #define NORM_S 0.282094791773878143
 #define NORM_P 0.488602511902919921
 
+#define MAXTHREADS 256
 #define LEN_LABELS 120
 #define CACHESIZE 144000
 
-const int LABELS_INT[] = {// l = 14
+static const int LABELS_INT[] = {// l = 14
     0, 1, 2, 4, 5, 8, 13, 14, 17, 26, 40, 41, 44, 53, 80, 121, 122, 125, 134, 161, 242, 364, 365, 368, 377, 404, 485, 728, 1093, 1094, 1097, 1106, 1133, 1214, 1457, 2186, 3280, 3281, 3284, 3293, 3320, 3401, 3644, 4373, 6560, 9841, 9842, 9845, 9854, 9881, 9962, 10205, 10934, 13121, 19682, 29524, 29525, 29528, 29537, 29564, 29645, 29888, 30617, 32804, 39365, 59048, 88573, 88574, 88577, 88586, 88613, 88694, 88937, 89666, 91853, 98414, 118097, 177146, 265720, 265721, 265724, 265733, 265760, 265841, 266084, 266813, 269000, 275561, 295244, 354293, 531440, 797161, 797162, 797165, 797174, 797201, 797282, 797525, 798254, 800441, 807002, 826685, 885734, 1062881, 1594322, 2391484, 2391485, 2391488, 2391497, 2391524, 2391605, 2391848, 2392577, 2394764, 2401325, 2421008, 2480057, 2657204, 3188645, 4782968
 };
 
+static const int _LEN_SPH[] = {
+    1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31
+};
+
+static const int _LEN_CART[] = {
+    1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91, 105, 120, 136
+};
 
 static int compareints (const void* a, const void* b)
 {
@@ -134,12 +142,9 @@ static void GTOint2c_bra_exp_deriv(
         int cart, int order, double* cache)
 {// (i'|j)
     const int ish0 = shls_slice[0];
-    //const int ish1 = shls_slice[1];
     const int jsh0 = shls_slice[2];
     const int jsh1 = shls_slice[3];
     const int ksh0 = shls_slice[4];
-    //const int ksh1 = shls_slice[5];
-    //const size_t naoi_all = ao_loc[ish1] - ao_loc[ish0];
     const size_t naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
 
     ish += ish0;
@@ -157,19 +162,17 @@ static void GTOint2c_bra_exp_deriv(
     int ptr_coeff = bas[PTR_COEFF+ish*BAS_SLOTS];
 
     int ni, nj, ni_cart, nj_cart;
-    ni = ni_cart = (li + 1) * (li + 2) / 2;
-    nj = nj_cart = (lj + 1) * (lj + 2) / 2;
+    ni = ni_cart = _LEN_CART[li];
+    nj = nj_cart = _LEN_CART[lj];
     if (!cart) {
-        ni = li * 2 + 1;
-        nj = lj * 2 + 1;
+        ni = _LEN_SPH[li];
+        nj = _LEN_SPH[lj];
     }
-    int nk_cart = (lk + 1) * (lk + 2) / 2;
+    int nk_cart = _LEN_CART[lk];
 
     int nij = ni * nj;
     int nij_cart = ni_cart * nj_cart;
-    //int naoi = ao_loc[ish+1] - ao_loc[ish];
     int naoj = ao_loc[jsh+1] - ao_loc[jsh];
-    //int naoi_cart = ao_loc_cart[ish+1] - ao_loc_cart[ish];
     int naoj_cart = ao_loc_cart[jsh+1] - ao_loc_cart[jsh];
 
     int dims[] = {nk_cart, naoj_cart};
@@ -236,6 +239,58 @@ static void GTOint2c_bra_exp_deriv(
 }
 
 
+static void GTOint2c_bra_coeff_deriv(
+        int (*intor)(), double (*contract)(),
+        double* vjp, double* ybar,
+        int* shlmap_c2u, int* cs_of,
+        int ish, int jsh,
+        int *shls_slice, int *ao_loc, CINTOpt *opt,
+        int *atm, int natm, int *bas, int nbas, double *env,
+        int cart, double* cache)
+{// (i'|j)
+    const int ish0 = shls_slice[0];
+    const int jsh0 = shls_slice[2];
+    const int jsh1 = shls_slice[3];
+    const int ksh0 = shls_slice[4];
+    const size_t naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
+
+    ish += ish0;
+    jsh += jsh0;
+    int i0 = ao_loc[ish] - ao_loc[ish0];
+    int j0 = ao_loc[jsh] - ao_loc[jsh0];
+    int ics = cs_of[ish];
+
+    int nprim_i = bas[NPRIM_OF+ish*BAS_SLOTS];
+    int nctr_i = bas[NCTR_OF+ish*BAS_SLOTS];
+    int li = bas[ANG_OF+ish*BAS_SLOTS];
+    int ni = (cart == 0) ? _LEN_SPH[li] : _LEN_CART[li];
+    int naoj = ao_loc[jsh+1] - ao_loc[jsh];
+
+    int i, k;
+    int dims[] = {ni, naoj};
+    int shls[2];
+    int ksh = shlmap_c2u[ish] + ksh0;
+    double *mat = cache;
+    for (i = 0; i < nprim_i; i++) {
+        assert (li == bas[ANG_OF+ksh*BAS_SLOTS]);
+        shls[0] = ksh;
+        shls[1] = jsh;
+        // mat in F order
+        (*intor)(mat, dims, shls,
+                 atm, natm, bas, nbas, env, opt, cache);
+
+        for (k = 0; k < nctr_i; k++) {
+            double sum = (*contract)(mat, ybar,
+                                     naoj_all, i0 + k*ni, j0,
+                                     ni, naoj);
+            vjp[ics + k*nprim_i] += sum;
+        }
+        ksh += 1;
+        ics += 1;
+    }
+}
+
+
 void GTOint2c_exp_vjp(int (*intor)(), //intor is always *_cart
                      double* vjp, int nes, double* ybar,
                      int* shlmap_c2u, int* es_of,
@@ -257,7 +312,7 @@ void GTOint2c_exp_vjp(int (*intor)(), //intor is always *_cart
                                           atm, natm, bas, nbas, env);
     cache_size += CACHESIZE * 4;
 
-    double *vjpbufs[256];
+    double *vjpbufs[MAXTHREADS];
 
 #pragma omp parallel
 {
@@ -292,6 +347,68 @@ void GTOint2c_exp_vjp(int (*intor)(), //intor is always *_cart
 
     free(cache);
     NPomp_dsum_reduce_inplace(vjpbufs, nes);
+    if (thread_id != 0) {
+        free(vjp_loc);
+    }
+}
+}
+
+
+void GTOint2c_coeff_vjp(int (*intor)(),
+                        double* vjp, int ncs, double* ybar,
+                        int* shlmap_c2u, int* cs_of,
+                        int comp, int hermi,
+                        int *shls_slice, int *ao_loc, CINTOpt *opt,
+                        int *atm, int natm, int *bas, int nbas, double *env,
+                        int cart)
+{
+    const int ish0 = shls_slice[0];
+    const int ish1 = shls_slice[1];
+    const int jsh0 = shls_slice[2];
+    const int jsh1 = shls_slice[3];
+    const int ksh0 = shls_slice[4];
+    const int ksh1 = shls_slice[5];
+    const int nish = ish1 - ish0;
+    const int njsh = jsh1 - jsh0;
+    int shls_slice_ji[] = {jsh0, jsh1, ish0, ish1, ksh0, ksh1};
+    size_t cache_size = GTOmax_cache_size(intor, shls_slice, 3,
+                                          atm, natm, bas, nbas, env);
+
+    double *vjpbufs[MAXTHREADS];
+
+#pragma omp parallel
+{
+    int thread_id = omp_get_thread_num();
+    double *vjp_loc;
+    if (thread_id == 0) {
+        vjp_loc = vjp;
+    } else {
+        vjp_loc = calloc(ncs, sizeof(double));
+    }
+    vjpbufs[thread_id] = vjp_loc;
+
+    int ij, ish, jsh;
+    double *cache = malloc(sizeof(double) * cache_size);
+    #pragma omp for schedule(dynamic, 4)
+    for (ij = 0; ij < nish*njsh; ij++) {
+        ish = ij / njsh;
+        jsh = ij % njsh;
+
+        GTOint2c_bra_coeff_deriv(
+            intor, contract_ij_ij, vjp_loc, ybar, shlmap_c2u, cs_of,
+            ish, jsh, shls_slice, ao_loc, opt,
+            atm, natm, bas, nbas, env, cart, cache);
+
+        if (hermi == 0) {
+            GTOint2c_bra_coeff_deriv(
+                intor, contract_ij_ji, vjp_loc, ybar, shlmap_c2u, cs_of,
+                jsh, ish, shls_slice_ji, ao_loc, opt,
+                atm, natm, bas, nbas, env, cart, cache);
+        }
+    }
+
+    free(cache);
+    NPomp_dsum_reduce_inplace(vjpbufs, ncs);
     if (thread_id != 0) {
         free(vjp_loc);
     }
