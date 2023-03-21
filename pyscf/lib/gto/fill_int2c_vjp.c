@@ -131,7 +131,80 @@ static double contract_ij_ji(double* x, double* y,
     return sum;
 }
 
-    
+
+static void GTOint2c_bra_r0_deriv(
+        int (*intor)(), double (*contract)(),
+        double* vjp, double* ybar, int comp,
+        int ish, int jsh,
+        int *shls_slice, int *ao_loc, CINTOpt *opt,
+        int *atm, int natm, int *bas, int nbas, double *env,
+        double* cache, size_t cache_of)
+{// (i'|j)
+    const int ish0 = shls_slice[0];
+    const int jsh0 = shls_slice[2];
+    const int jsh1 = shls_slice[3];
+    const size_t naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
+
+    ish += ish0;
+    jsh += jsh0;
+    int i0 = ao_loc[ish] - ao_loc[ish0];
+    int j0 = ao_loc[jsh] - ao_loc[jsh0];
+
+    const size_t naoi = ao_loc[ish+1] - ao_loc[ish];
+    const size_t naoj = ao_loc[jsh+1] - ao_loc[jsh];
+    int dims[] = {naoi, naoj};
+    int shls[] = {ish, jsh};
+    double *mat = cache + cache_of;
+    // mat in F order
+    (*intor)(mat, dims, shls,
+             atm, natm, bas, nbas, env, opt, cache);
+
+    int ic;
+    int iatm = bas[ATOM_OF+ish*BAS_SLOTS];
+    double *ptr_vjp = vjp + iatm * comp;
+    for (ic = 0; ic < comp; ic++) {
+        // minus sign for nuclear derivative
+        ptr_vjp[ic] -= (*contract)(mat, ybar, naoj_all, i0, j0, naoi, naoj);
+        mat += naoi * naoj;
+    }
+}
+
+
+static void GTOint2c_bra_rc_deriv(
+        int (*intor)(), double (*contract)(),
+        double* vjp, double* ybar, int comp,
+        int ish, int jsh,
+        int *shls_slice, int *ao_loc, CINTOpt *opt,
+        int *atm, int natm, int *bas, int nbas, double *env,
+        double* cache, size_t cache_of)
+{// (i'|j)
+    const int ish0 = shls_slice[0];
+    const int jsh0 = shls_slice[2];
+    const int jsh1 = shls_slice[3];
+    const size_t naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
+
+    ish += ish0;
+    jsh += jsh0;
+    int i0 = ao_loc[ish] - ao_loc[ish0];
+    int j0 = ao_loc[jsh] - ao_loc[jsh0];
+
+    const size_t naoi = ao_loc[ish+1] - ao_loc[ish];
+    const size_t naoj = ao_loc[jsh+1] - ao_loc[jsh];
+    int dims[] = {naoi, naoj};
+    int shls[] = {ish, jsh};
+    double *mat = cache + cache_of;
+    // mat in F order
+    (*intor)(mat, dims, shls,
+             atm, natm, bas, nbas, env, opt, cache);
+
+    int ic;
+    for (ic = 0; ic < comp; ic++) {
+        vjp[ic] += (*contract)(mat, ybar, naoj_all, i0, j0, naoi, naoj);
+        mat += naoi * naoj;
+    }
+}
+
+
 static void GTOint2c_bra_exp_deriv(
         int (*intor)(), double (*contract)(),
         double* vjp, double* ybar,
@@ -139,7 +212,7 @@ static void GTOint2c_bra_exp_deriv(
         int ish, int jsh,
         int *shls_slice, int *ao_loc, int *ao_loc_cart, CINTOpt *opt,
         int *atm, int natm, int *bas, int nbas, double *env,
-        int cart, int order, double* cache)
+        int cart, int order, double* cache, size_t cache_of)
 {// (i'|j)
     const int ish0 = shls_slice[0];
     const int jsh0 = shls_slice[2];
@@ -189,7 +262,7 @@ static void GTOint2c_bra_exp_deriv(
     
     int i, j, k;
     int ix, iy, iz, ixyz;
-    double *mat = cache;
+    double *mat = cache + cache_of;
     double *gcart = mat + CACHESIZE;
     double *gsph = gcart;
     if (!cart) gsph = gcart + CACHESIZE;
@@ -246,7 +319,7 @@ static void GTOint2c_bra_coeff_deriv(
         int ish, int jsh,
         int *shls_slice, int *ao_loc, CINTOpt *opt,
         int *atm, int natm, int *bas, int nbas, double *env,
-        int cart, double* cache)
+        int cart, double* cache, size_t cache_of)
 {// (i'|j)
     const int ish0 = shls_slice[0];
     const int jsh0 = shls_slice[2];
@@ -270,7 +343,7 @@ static void GTOint2c_bra_coeff_deriv(
     int dims[] = {ni, naoj};
     int shls[2];
     int ksh = shlmap_c2u[ish] + ksh0;
-    double *mat = cache;
+    double *mat = cache + cache_of;
     for (i = 0; i < nprim_i; i++) {
         assert (li == bas[ANG_OF+ksh*BAS_SLOTS]);
         shls[0] = ksh;
@@ -288,6 +361,124 @@ static void GTOint2c_bra_coeff_deriv(
         ksh += 1;
         ics += 1;
     }
+}
+
+
+void GTOint2c_r0_vjp(int (*intor)(), double* vjp, double* ybar,
+                     int comp, int hermi, int *shls_slice,
+                     int *ao_loc, CINTOpt *opt,
+                     int *atm, int natm, int *bas, int nbas, double *env)
+{
+    const int ish0 = shls_slice[0];
+    const int ish1 = shls_slice[1];
+    const int jsh0 = shls_slice[2];
+    const int jsh1 = shls_slice[3];
+    const int nish = ish1 - ish0;
+    const int njsh = jsh1 - jsh0;
+    int shls_slice_ji[] = {jsh0, jsh1, ish0, ish1};
+    size_t cache_size = GTOmax_cache_size(intor, shls_slice, 2,
+                                          atm, natm, bas, nbas, env);
+    size_t cache_of = cache_size;
+    cache_size += CACHESIZE;
+
+    double *vjpbufs[MAXTHREADS];
+
+#pragma omp parallel
+{
+    int thread_id = omp_get_thread_num();
+    double *vjp_loc;
+    if (thread_id == 0) {
+        vjp_loc = vjp;
+    } else {
+        vjp_loc = calloc(natm*comp, sizeof(double));
+    }
+    vjpbufs[thread_id] = vjp_loc;
+
+    int ij, ish, jsh;
+    double *cache = malloc(sizeof(double) * cache_size);
+    #pragma omp for schedule(dynamic, 4)
+    for (ij = 0; ij < nish*njsh; ij++) {
+        ish = ij / njsh;
+        jsh = ij % njsh;
+
+        GTOint2c_bra_r0_deriv(
+            intor, contract_ij_ij, vjp_loc, ybar, comp,
+            ish, jsh, shls_slice, ao_loc, opt,
+            atm, natm, bas, nbas, env, cache, cache_of);
+
+        if (hermi == 0) {
+            GTOint2c_bra_r0_deriv(
+                intor, contract_ij_ji, vjp_loc, ybar, comp,
+                jsh, ish, shls_slice_ji, ao_loc, opt,
+                atm, natm, bas, nbas, env, cache, cache_of);
+        }
+    }
+
+    free(cache);
+    NPomp_dsum_reduce_inplace(vjpbufs, natm*comp);
+    if (thread_id != 0) {
+        free(vjp_loc);
+    }
+}
+}
+
+
+void GTOint2c_rc_vjp(int (*intor)(), double* vjp, double* ybar,
+                     int comp, int hermi, int *shls_slice,
+                     int *ao_loc, CINTOpt *opt,
+                     int *atm, int natm, int *bas, int nbas, double *env)
+{
+    const int ish0 = shls_slice[0];
+    const int ish1 = shls_slice[1];
+    const int jsh0 = shls_slice[2];
+    const int jsh1 = shls_slice[3];
+    const int nish = ish1 - ish0;
+    const int njsh = jsh1 - jsh0;
+    int shls_slice_ji[] = {jsh0, jsh1, ish0, ish1};
+    size_t cache_size = GTOmax_cache_size(intor, shls_slice, 2,
+                                          atm, natm, bas, nbas, env);
+    size_t cache_of = cache_size;
+    cache_size += CACHESIZE;
+
+    double *vjpbufs[MAXTHREADS];
+
+#pragma omp parallel
+{
+    int thread_id = omp_get_thread_num();
+    double *vjp_loc;
+    if (thread_id == 0) {
+        vjp_loc = vjp;
+    } else {
+        vjp_loc = calloc(comp, sizeof(double));
+    }
+    vjpbufs[thread_id] = vjp_loc;
+
+    int ij, ish, jsh;
+    double *cache = malloc(sizeof(double) * cache_size);
+    #pragma omp for schedule(dynamic, 4)
+    for (ij = 0; ij < nish*njsh; ij++) {
+        ish = ij / njsh;
+        jsh = ij % njsh;
+
+        GTOint2c_bra_rc_deriv(
+            intor, contract_ij_ij, vjp_loc, ybar, comp,
+            ish, jsh, shls_slice, ao_loc, opt,
+            atm, natm, bas, nbas, env, cache, cache_of);
+
+        if (hermi == 0) {
+            GTOint2c_bra_rc_deriv(
+                intor, contract_ij_ji, vjp_loc, ybar, comp,
+                jsh, ish, shls_slice_ji, ao_loc, opt,
+                atm, natm, bas, nbas, env, cache, cache_of);
+        }
+    }
+
+    free(cache);
+    NPomp_dsum_reduce_inplace(vjpbufs, comp);
+    if (thread_id != 0) {
+        free(vjp_loc);
+    }
+}
 }
 
 
@@ -310,6 +501,7 @@ void GTOint2c_exp_vjp(int (*intor)(), //intor is always *_cart
     int shls_slice_ji[] = {jsh0, jsh1, ish0, ish1, ksh0, ksh1};
     size_t cache_size = GTOmax_cache_size(intor, shls_slice, 3,
                                           atm, natm, bas, nbas, env);
+    size_t cache_of = cache_size;
     cache_size += CACHESIZE * 4;
 
     double *vjpbufs[MAXTHREADS];
@@ -335,13 +527,13 @@ void GTOint2c_exp_vjp(int (*intor)(), //intor is always *_cart
         GTOint2c_bra_exp_deriv(
             intor, contract_ij_ij, vjp_loc, ybar, shlmap_c2u, es_of,
             ish, jsh, shls_slice, ao_loc, ao_loc_cart, opt,
-            atm, natm, bas, nbas, env, cart, order, cache);
+            atm, natm, bas, nbas, env, cart, order, cache, cache_of);
 
         if (hermi == 0) {
             GTOint2c_bra_exp_deriv(
                 intor, contract_ij_ji, vjp_loc, ybar, shlmap_c2u, es_of,
                 jsh, ish, shls_slice_ji, ao_loc, ao_loc_cart, opt,
-                atm, natm, bas, nbas, env, cart, order, cache);
+                atm, natm, bas, nbas, env, cart, order, cache, cache_of);
         }
     }
 
@@ -373,6 +565,8 @@ void GTOint2c_coeff_vjp(int (*intor)(),
     int shls_slice_ji[] = {jsh0, jsh1, ish0, ish1, ksh0, ksh1};
     size_t cache_size = GTOmax_cache_size(intor, shls_slice, 3,
                                           atm, natm, bas, nbas, env);
+    size_t cache_of = cache_size;
+    cache_size += CACHESIZE;
 
     double *vjpbufs[MAXTHREADS];
 
@@ -397,13 +591,13 @@ void GTOint2c_coeff_vjp(int (*intor)(),
         GTOint2c_bra_coeff_deriv(
             intor, contract_ij_ij, vjp_loc, ybar, shlmap_c2u, cs_of,
             ish, jsh, shls_slice, ao_loc, opt,
-            atm, natm, bas, nbas, env, cart, cache);
+            atm, natm, bas, nbas, env, cart, cache, cache_of);
 
         if (hermi == 0) {
             GTOint2c_bra_coeff_deriv(
                 intor, contract_ij_ji, vjp_loc, ybar, shlmap_c2u, cs_of,
                 jsh, ish, shls_slice_ji, ao_loc, opt,
-                atm, natm, bas, nbas, env, cart, cache);
+                atm, natm, bas, nbas, env, cart, cache, cache_of);
         }
     }
 
