@@ -31,7 +31,8 @@ from pyscf.lo import orth, cholesky_mos
 from pyscf import __config__
 
 
-def kernel(localizer, mo_coeff=None, callback=None, verbose=None):
+def kernel(localizer, mo_coeff=None, callback=None, verbose=None,
+           return_u=False):
     from pyscf.tools import mo_mapping
     if mo_coeff is not None:
         localizer.mo_coeff = numpy.asarray(mo_coeff, order='C')
@@ -99,6 +100,8 @@ def kernel(localizer, mo_coeff=None, callback=None, verbose=None):
 # Sort the localized orbitals, to make each localized orbitals as close as
 # possible to the corresponding input orbitals
     sorted_idx = mo_mapping.mo_1to1map(u0)
+    if return_u:
+        return u0, sorted_idx
     localizer.mo_coeff = lib.dot(localizer.mo_coeff, u0[:,sorted_idx])
     return localizer.mo_coeff
 
@@ -294,7 +297,7 @@ class Boys(ciah.CIAHOptimizer):
         dip = dipole_integral(self.mol, mo_coeff)
         r2 = self.mol.intor_symmetric('int1e_r2')
         r2 = numpy.einsum('pi,pi->', mo_coeff, lib.dot(r2, mo_coeff))
-        val = r2 - numpy.einsum('xii,xii->', dip, dip) * 2
+        val = r2 - numpy.einsum('xii,xii->', dip, dip)
         return val
 
     def get_init_guess(self, key='atomic'):

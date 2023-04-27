@@ -22,6 +22,7 @@ import copy
 from functools import reduce
 import numpy
 import scipy.linalg
+from pyscf import numpy as np
 from pyscf import lib
 from pyscf.gto import mole
 from pyscf.lib import logger
@@ -437,13 +438,13 @@ def project_dm_r2r(mol1, dm1, mol2):
 def canonical_orth_(S, thr=1e-7):
     '''Löwdin's canonical orthogonalization'''
     # Ensure the basis functions are normalized (symmetry-adapted ones are not!)
-    normlz = numpy.power(numpy.diag(S), -0.5)
-    Snorm = numpy.dot(numpy.diag(normlz), numpy.dot(S, numpy.diag(normlz)))
+    normlz = np.power(np.diag(S), -0.5)
+    Snorm = np.dot(np.diag(normlz), np.dot(S, np.diag(normlz)))
     # Form vectors for normalized overlap matrix
-    Sval, Svec = numpy.linalg.eigh(Snorm)
-    X = Svec[:,Sval>=thr] / numpy.sqrt(Sval[Sval>=thr])
+    Sval, Svec = np.linalg.eigh(Snorm)
+    X = Svec[:,Sval>=thr] / np.sqrt(Sval[Sval>=thr])
     # Plug normalization back in
-    X = numpy.dot(numpy.diag(normlz), X)
+    X = np.dot(np.diag(normlz), X)
     return X
 
 def partial_cholesky_orth_(S, canthr=1e-7, cholthr=1e-9):
