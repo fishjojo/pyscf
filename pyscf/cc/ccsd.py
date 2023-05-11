@@ -29,7 +29,6 @@ import numpy
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
-from pyscf.lib import stop_grad
 from pyscf import ao2mo
 from pyscf.ao2mo import _ao2mo
 from pyscf.cc import _ccsd
@@ -1045,18 +1044,18 @@ http://sunqm.net/pyscf/code-rule.html#api-rules for the details of API conventio
             eris = self.ao2mo(self.mo_coeff)
         e_hf = self.e_hf
         if e_hf is None: e_hf = self.get_e_hf(mo_coeff=self.mo_coeff)
-        mo_e = stop_grad(eris.mo_energy)
+        mo_e = eris.mo_energy
         nocc = self.nocc
         nvir = mo_e.size - nocc
         eia = mo_e[:nocc,None] - mo_e[None,nocc:]
 
-        t1 = stop_grad(eris.fock[:nocc,nocc:]) / eia
+        t1 = eris.fock[:nocc,nocc:] / eia
         t2 = numpy.empty((nocc,nocc,nvir,nvir), dtype=eris.ovov.dtype)
         max_memory = self.max_memory - lib.current_memory()[0]
         blksize = int(min(nvir, max(BLKMIN, max_memory*.3e6/8/(nocc**2*nvir+1))))
         emp2 = 0
         for p0, p1 in lib.prange(0, nvir, blksize):
-            eris_ovov = stop_grad(eris.ovov[:,p0:p1])
+            eris_ovov = eris.ovov[:,p0:p1]
             t2[:,:,p0:p1] = (eris_ovov.transpose(0,2,1,3).conj()
                              / lib.direct_sum('ia,jb->ijab', eia[:,p0:p1], eia))
             emp2 += 2 * numpy.einsum('ijab,iajb', t2[:,:,p0:p1], eris_ovov)
