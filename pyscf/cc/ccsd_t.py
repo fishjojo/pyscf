@@ -214,7 +214,7 @@ def _sort_t2_vooo_(mycc, orbsym, t1, t2, eris):
             t2 = lib.transpose(tmp.reshape(nvir**2,nocc**2), out=t2T)
             return t2.reshape(nocc,nocc,nvir,nvir)
     else:
-        fvo = eris.fock[nocc:,:nocc].copy()
+        fvo = numpy.asarray(eris.fock[nocc:,:nocc], order='C').copy()
         t1T = t1.T.copy()
         t2T = lib.transpose(t2.reshape(nocc**2,nvir**2))
         t2T = lib.transpose(t2T.reshape(nvir**2,nocc,nocc), axes=(0,2,1), out=t2)

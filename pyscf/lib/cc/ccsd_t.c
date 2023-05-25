@@ -21,21 +21,14 @@
 #include "config.h"
 #include "np_helper/np_helper.h"
 #include "vhf/fblas.h"
-
-typedef struct {
-        void *cache[6];
-        short a;
-        short b;
-        short c;
-        short _padding;
-} CacheJob;
+#include "ccsd_t.h"
 
 /*
  * 4 * w + w.transpose(1,2,0) + w.transpose(2,0,1)
  * - 2 * w.transpose(2,1,0) - 2 * w.transpose(0,2,1)
  * - 2 * w.transpose(1,0,2)
  */
-static void add_and_permute(double *out, double *w, double *v, int n, double fac)
+void add_and_permute(double *out, double *w, double *v, int n, double fac)
 {
         int nn = n * n;
         int nnn = nn * n;
@@ -68,7 +61,7 @@ static void add_and_permute(double *out, double *w, double *v, int n, double fac
  * v+= numpy.einsum('ij,k->ijk', t2T[b,a], fov[:,c]*.5)
  * v+= w
  */
-static void get_wv(double *w, double *v, double *cache,
+void get_wv(double *w, double *v, double *cache,
                    double *fvohalf, double *vooo,
                    double *vv_op, double *t1Thalf, double *t2T,
                    int nocc, int nvir, int a, int b, int c, int *idx)
