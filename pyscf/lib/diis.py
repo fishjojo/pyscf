@@ -23,7 +23,6 @@ DIIS
 import sys
 import numpy
 import scipy.linalg
-from pyscf import numpy as np
 from pyscf.lib import logger
 from pyscf.lib import misc
 from pyscf.lib import numpy_helper
@@ -176,7 +175,10 @@ class DIIS(object):
             xkey = 'x%d'%self._head
             self._store(xkey, x)
             if x.size < INCORE_SIZE or self.incore:
-                self._store(ekey, stop_grad(x - np.asarray(self._xprev)))
+                # no need to trace error vector
+                x = numpy.asarray(stop_grad(x))
+                xprev = numpy.asarray(stop_grad(self._xprev))
+                self._store(ekey, x - xprev)
             else:  # not call _store to reduce memory footprint
                 if ekey not in self._diisfile:
                     self._diisfile.create_dataset(ekey, (x.size,), x.dtype)
