@@ -2252,10 +2252,10 @@ class Mole(lib.StreamObject):
         self.magmom = []
 ##################################################
 # don't modify the following private variables, they are not input options
-        self._atm = numpy.zeros((0,6), dtype=numpy.int32)
-        self._bas = numpy.zeros((0,8), dtype=numpy.int32)
+        self._atm = numpy.empty((0,6), dtype=numpy.int32)
+        self._bas = numpy.empty((0,8), dtype=numpy.int32)
         self._env = numpy.zeros(PTR_ENV_START)
-        self._ecpbas = numpy.zeros((0,8), dtype=numpy.int32)
+        self._ecpbas = numpy.empty((0,8), dtype=numpy.int32)
 
         self.stdout = sys.stdout
         self.groupname = 'C1'

@@ -12,20 +12,26 @@ extern void get_wv(double *w, double *v, double *cache,
                    double *vv_op, double *t1Thalf, double *t2T,
                    int nocc, int nvir, int a, int b, int c, int *idx);
 
-static void get_wz(double *w0, double* z0,
+static void get_wz(double *w0_mat, double *w0, double* z0,
                    int nocc, int nvir, int a, int b, int c,
-                   double *mo_energy, double *t1T, double *t2T,
+                   double *mat, double *mo_energy, double *t1T, double *t2T,
                    double *fvo,
                    double *vooo, double *cache1, void **cache,
                    int *permute_idx, double fac)
 {
-    int nooo = nocc * nocc * nocc;
+    const int noo = nocc * nocc;
+    const int nooo = noo * nocc;
     int *idx0 = permute_idx;
     int *idx1 = idx0 + nooo;
     int *idx2 = idx1 + nooo;
     int *idx3 = idx2 + nooo;
     int *idx4 = idx3 + nooo;
     int *idx5 = idx4 + nooo;
+    const double D0 = 0;
+    const double D1 = 1;
+    const char TRANS_N = 'N';
+    const char TRANS_T = 'T';
+
     double *v0 = cache1;
     double *wtmp = v0 + nooo;
     int i;
@@ -43,6 +49,10 @@ static void get_wz(double *w0, double* z0,
     get_wv(w0, v0, wtmp, fvo, vooo, cache[5], t1T, t2T, nocc, nvir, c, b, a, idx5);
 
     add_and_permute(z0, w0, v0, nocc, fac);
+
+    dgemm_(&TRANS_N, &TRANS_T, &noo, &nocc, &nocc,
+           &D1, w0, &noo, mat, &nocc,
+           &D0, w0_mat, &noo);
 }
 
 static void get_d3(double *d3, double *mo_energy, int nocc,
@@ -67,12 +77,13 @@ static void get_v0_bar(double *v0_bar, double *z0_bar, double fac, int nocc, int
     }
 }
 
-static void get_w0v0d3_bar(double *w0_bar, double *v0_bar, double *d3_bar,
-                           double *z0, double *w0, double *d3,
+static void get_w0v0d3_bar(double *mat_bar, double *w0_bar, double *v0_bar, double *d3_bar,
+                           double *w0_mat, double *mat, double *z0, double *w0, double *d3,
                            double et_bar, int nocc, int *permute_idx,
                            double *cache)
 {
-    const int nooo = nocc * nocc * nocc;
+    const int noo = nocc * nocc;
+    const int nooo = noo * nocc;
     int n;
     int *idx0 = permute_idx;
     int *idx1 = idx0 + nooo;
@@ -80,14 +91,29 @@ static void get_w0v0d3_bar(double *w0_bar, double *v0_bar, double *d3_bar,
     int *idx3 = idx2 + nooo;
     int *idx4 = idx3 + nooo;
     int *idx5 = idx4 + nooo;
+
+    const double D0 = 0;
+    const double D1 = 1;
+    const char TRANS_N = 'N';
+    const char TRANS_T = 'T';
+
     double *z0_bar = cache;
+    double *w0_mat_bar = z0_bar + nooo;
 
     for (n = 0; n < nooo; n++) {
-        z0_bar[n] = et_bar * w0[n] * d3[n];
-        d3_bar[n] = et_bar * w0[n] * z0[n];
-        w0_bar[n] = et_bar * z0[n] * d3[n];
+        z0_bar[n] = et_bar * w0_mat[n] * d3[n];
+        d3_bar[n] = et_bar * w0_mat[n] * z0[n];
+        w0_mat_bar[n] = et_bar * z0[n] * d3[n];
         v0_bar[n] = 0;
     }
+
+    dgemm_(&TRANS_T, &TRANS_N, &nocc, &nocc, &noo,
+           &D1, w0_mat_bar, &noo, w0, &noo,
+           &D1, mat_bar, &nocc);
+
+    dgemm_(&TRANS_N, &TRANS_N, &noo, &nocc, &nocc,
+           &D1, w0_mat_bar, &noo, mat, &nocc,
+           &D0, w0_bar, &noo);
 
     get_v0_bar(v0_bar, z0_bar,  4., nocc, idx0);
     get_v0_bar(v0_bar, z0_bar, -2., nocc, idx1);
@@ -274,9 +300,9 @@ static void get_eris_amps_bar(
     get_fvo_bar(fvo_bar, vabc_bar, t2T, nocc, nvir, a, b, c);
 }
 
-static void contract6_vjp(double *mo_energy, double *t1Thalf, double *t2T,
+static void contract6_vjp(double *mat, double *mo_energy, double *t1Thalf, double *t2T,
                           double *fvohalf, double *vooo, void **cache,
-                          double *mo_energy_bar, double *t1T_bar, double *t2T_bar,
+                          double *mat_bar, double *mo_energy_bar, double *t1T_bar, double *t2T_bar,
                           double *fvo_bar, double *vooo_bar, void **cache_vjp, double et_bar,
                           int nocc, int nvir, int a, int b, int c,
                           int *permute_idx, double fac, double *cache1)
@@ -295,10 +321,11 @@ static void contract6_vjp(double *mo_energy, double *t1Thalf, double *t2T,
     double *v0_bar = z0;
     double *d3 = z0 + nooo;
     double *d3_bar = d3 + nooo;
+    double *w0_mat = d3_bar;
 
     cache1 += nooo * 4;
-    get_wz(w0, z0, nocc, nvir, a, b, c,
-           mo_energy, t1Thalf, t2T, fvohalf,
+    get_wz(w0_mat, w0, z0, nocc, nvir, a, b, c,
+           mat, mo_energy, t1Thalf, t2T, fvohalf,
            vooo, cache1, cache, permute_idx, fac);
 
     if (a == c) {
@@ -309,7 +336,8 @@ static void contract6_vjp(double *mo_energy, double *t1Thalf, double *t2T,
         get_d3(d3, mo_energy, nocc, a, b, c, 1.);
     }
 
-    get_w0v0d3_bar(w0_bar, v0_bar, d3_bar, z0, w0, d3,
+    get_w0v0d3_bar(mat_bar, w0_bar, v0_bar, d3_bar,
+                   w0_mat, mat, z0, w0, d3,
                    et_bar, nocc, permute_idx, cache1);
 
     if (a == c) {
@@ -335,21 +363,21 @@ static void contract6_vjp(double *mo_energy, double *t1Thalf, double *t2T,
 }
 
 
-void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
-                       double *vooo, double *fvo, double et_bar,
-                       int nocc, int nvir, int a0, int a1, int b0, int b1,
-                       void *cache_row_a, void *cache_col_a,
-                       void *cache_row_b, void *cache_col_b,
-                       double *mo_energy_bar,
-                       double *t1T_bar,
-                       double *t2T_bar,
-                       double *vooo_bar,
-                       double *fvo_bar,
-                       double *cache_row_a_bar,
-                       double *cache_col_a_bar,
-                       double *cache_row_b_bar,
-                       double *cache_col_b_bar
-                       )
+void lno_ccsd_t_energy_vjp(double *mat, double *mo_energy, double *t1T, double *t2T,
+                           double *vooo, double *fvo, double et_bar,
+                           int nocc, int nvir, int a0, int a1, int b0, int b1,
+                           void *cache_row_a, void *cache_col_a,
+                           void *cache_row_b, void *cache_col_b,
+                           double *mat_bar,
+                           double *mo_energy_bar,
+                           double *t1T_bar,
+                           double *t2T_bar,
+                           double *vooo_bar,
+                           double *fvo_bar,
+                           double *cache_row_a_bar,
+                           double *cache_col_a_bar,
+                           double *cache_row_b_bar,
+                           double *cache_col_b_bar)
 {
     int da = a1 - a0;
     int db = b1 - b0;
@@ -371,6 +399,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
         fvohalf[k] = fvo[k] * .5;
     }
 
+    double *mat_bar_bufs[MAX_THREADS];
     double *mo_energy_bar_bufs[MAX_THREADS];
     double *t1T_bar_bufs[MAX_THREADS];
     double *t2T_bar_bufs[MAX_THREADS];
@@ -385,6 +414,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
     #pragma omp parallel
     {
         int thread_id = omp_get_thread_num();
+        double *mat_bar_priv;
         double *mo_energy_bar_priv;
         double *t1T_bar_priv;
         double *t2T_bar_priv;
@@ -395,6 +425,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
         double *cache_row_b_bar_priv=NULL;
         double *cache_col_b_bar_priv=NULL;
         if (thread_id == 0) {
+            mat_bar_priv = mat_bar;
             mo_energy_bar_priv = mo_energy_bar;
             t1T_bar_priv = t1T_bar;
             t2T_bar_priv = t2T_bar;
@@ -411,6 +442,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
                 }
             }
         } else {
+            mat_bar_priv = calloc(nocc*nocc, sizeof(double));
             mo_energy_bar_priv = calloc(nmo, sizeof(double));
             t1T_bar_priv = calloc(nvir*nocc, sizeof(double));
             t2T_bar_priv = calloc(nvir*nvir*nocc*nocc, sizeof(double));
@@ -428,6 +460,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
             }
         }
 
+        mat_bar_bufs[thread_id] = mat_bar_priv;
         mo_energy_bar_bufs[thread_id] = mo_energy_bar_priv;
         t1T_bar_bufs[thread_id] = t1T_bar_priv;
         t2T_bar_bufs[thread_id] = t2T_bar_priv;
@@ -453,9 +486,9 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
             a = jobs[k].a;
             b = jobs[k].b;
             c = jobs[k].c;
-            contract6_vjp(mo_energy, t1Thalf, t2T,
+            contract6_vjp(mat, mo_energy, t1Thalf, t2T,
                           fvohalf, vooo, jobs[k].cache,
-                          mo_energy_bar_priv, t1T_bar_priv, t2T_bar_priv,
+                          mat_bar_priv, mo_energy_bar_priv, t1T_bar_priv, t2T_bar_priv,
                           fvo_bar_priv, vooo_bar_priv, jobs_vjp[k].cache, et_bar,
                           nocc, nvir, a, b, c,
                           permute_idx, 1., cache1);
@@ -463,6 +496,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
         free(jobs_vjp);
         free(cache1);
 
+        NPomp_dsum_reduce_inplace(mat_bar_bufs, nocc*nocc);
         NPomp_dsum_reduce_inplace(mo_energy_bar_bufs, nmo);
         NPomp_dsum_reduce_inplace(t1T_bar_bufs, nvir*nocc);
         NPomp_dsum_reduce_inplace(t2T_bar_bufs, nvir*nvir*nocc*nocc);
@@ -470,6 +504,7 @@ void ccsd_t_energy_vjp(double *mo_energy, double *t1T, double *t2T,
         NPomp_dsum_reduce_inplace(fvo_bar_bufs, nvir*nocc);
         NPomp_dsum_reduce_inplace(cache_row_a_bar_bufs, da*a1*nocc*nmo);
         if (thread_id != 0) {
+            free(mat_bar_priv);
             free(mo_energy_bar_priv);
             free(t1T_bar_priv);
             free(t2T_bar_priv);

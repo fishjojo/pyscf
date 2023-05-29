@@ -14,7 +14,7 @@
 
 add_library(cc SHARED
   ccsd_pack.c ccsd_grad.c ccsd_t.c uccsd_t.c
-  ccsd_t_vjp.c)
+  ccsd_t_vjp.c lno_ccsd_t.c lno_ccsd_t_vjp.c)
 add_dependencies(cc np_helper ao2mo)
 
 set_target_properties(cc PROPERTIES
