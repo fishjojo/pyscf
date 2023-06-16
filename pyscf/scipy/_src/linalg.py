@@ -7,10 +7,8 @@ BACKEND = getattr(__config__, "pyscf_scipy_linalg_backend", "pyscf")
 
 if BACKEND.upper() == "PYSCF":
     from ._pyscf_linalg import *
-elif BACKEND.upper() == "JAX":
+elif BACKEND.upper() in ("JAX", "PYSCFAD"):
     from ._jax_linalg import *
-elif BACKEND.upper() == "PYSCFAD":
-    from ._pyscfad_linalg import *
 elif BACKEND.upper() == "CUPY":
     raise NotImplementedError
 else:
