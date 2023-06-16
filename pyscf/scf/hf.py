@@ -25,19 +25,18 @@ import tempfile
 
 from functools import reduce
 import numpy
-#import scipy.linalg
+import scipy.linalg
 import h5py
 from pyscf import gto
 from pyscf import lib
 from pyscf import numpy as np
-from pyscf import scipy as scipy
 from pyscf.lib import logger
 from pyscf.scf import diis
 from pyscf.scf import _vhf
 from pyscf.scf import chkfile
 from pyscf.data import nist
 from pyscf import __config__
-from pyscf.lib import stop_grad, ops
+from pyscf.lib import stop_grad
 
 
 WITH_META_LOWDIN = getattr(__config__, 'scf_analyze_with_meta_lowdin', True)
@@ -136,17 +135,17 @@ Keyword argument "init_dm" is replaced by "dm0"''')
     mo_energy = mo_coeff = mo_occ = None
 
     s1e = mf.get_ovlp(mol)
-    cond = np.linalg.cond(s1e)
+    cond = lib.cond(s1e)
     logger.debug(mf, 'cond(S) = %s', cond)
-    if cond.max()*1e-17 > conv_tol:
+    if numpy.max(cond)*1e-17 > conv_tol:
         logger.warn(mf, 'Singularity detected in overlap matrix (condition number = %4.3g). '
-                    'SCF may be inaccurate and hard to converge.', cond.max())
+                    'SCF may be inaccurate and hard to converge.', numpy.max(cond))
 
     # Skip SCF iterations. Compute only the total energy of the initial density
     if mf.max_cycle <= 0:
         fock = mf.get_fock(h1e, s1e, vhf, dm)  # = h1e + vhf, no DIIS
         mo_energy, mo_coeff = mf.eig(fock, s1e)
-        mo_occ = mf.get_occ(stop_grad(mo_energy), stop_grad(mo_coeff))
+        mo_occ = mf.get_occ(mo_energy, mo_coeff)
         return scf_conv, e_tot, mo_energy, mo_coeff, mo_occ
 
     if isinstance(mf.diis, lib.diis.DIIS):
@@ -180,7 +179,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
 
         fock = mf.get_fock(h1e, s1e, vhf, dm, cycle, mf_diis)
         mo_energy, mo_coeff = mf.eig(fock, s1e)
-        mo_occ = mf.get_occ(stop_grad(mo_energy), stop_grad(mo_coeff))
+        mo_occ = mf.get_occ(mo_energy, mo_coeff)
         dm = mf.make_rdm1(mo_coeff, mo_occ)
         # attach mo_coeff and mo_occ to dm to improve DFT get_veff efficiency
         dm = lib.tag_array(dm, mo_coeff=mo_coeff, mo_occ=mo_occ)
@@ -191,11 +190,10 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         # instead of the statement "fock = h1e + vhf" because Fock matrix may
         # be modified in some methods.
         fock = mf.get_fock(h1e, s1e, vhf, dm)  # = h1e + vhf, no DIIS
-        norm_gorb = numpy.linalg.norm(mf.get_grad(stop_grad(mo_coeff),
-                                      stop_grad(mo_occ), stop_grad(fock)))
+        norm_gorb = numpy.linalg.norm(mf.get_grad(mo_coeff, mo_occ, fock))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
+        norm_ddm = numpy.linalg.norm(dm-dm_last)
         logger.info(mf, 'cycle= %d E= %.15g  delta_E= %4.3g  |g|= %4.3g  |ddm|= %4.3g',
                     cycle+1, e_tot, e_tot-last_hf_e, norm_gorb, norm_ddm)
 
@@ -217,20 +215,19 @@ Keyword argument "init_dm" is replaced by "dm0"''')
 
     if scf_conv and conv_check:
         # An extra diagonalization, to remove level shift
-        fock = mf.get_fock(h1e, s1e, vhf, dm)  # = h1e + vhf
+        #fock = mf.get_fock(h1e, s1e, vhf, dm)  # = h1e + vhf
         mo_energy, mo_coeff = mf.eig(fock, s1e)
-        mo_occ = mf.get_occ(stop_grad(mo_energy), stop_grad(mo_coeff))
+        mo_occ = mf.get_occ(mo_energy, mo_coeff)
         dm, dm_last = mf.make_rdm1(mo_coeff, mo_occ), dm
         dm = lib.tag_array(dm, mo_coeff=mo_coeff, mo_occ=mo_occ)
         vhf = mf.get_veff(mol, dm, dm_last, vhf)
         e_tot, last_hf_e = mf.energy_tot(dm, h1e, vhf), e_tot
 
         fock = mf.get_fock(h1e, s1e, vhf, dm)
-        norm_gorb = numpy.linalg.norm(mf.get_grad(stop_grad(mo_coeff),
-                                      stop_grad(mo_occ), stop_grad(fock)))
+        norm_gorb = numpy.linalg.norm(mf.get_grad(mo_coeff, mo_occ, fock))
         if not TIGHT_GRAD_CONV_TOL:
             norm_gorb = norm_gorb / numpy.sqrt(norm_gorb.size)
-        norm_ddm = numpy.linalg.norm(stop_grad(dm)-stop_grad(dm_last))
+        norm_ddm = numpy.linalg.norm(dm-dm_last)
 
         conv_tol = conv_tol * 10
         conv_tol_grad = conv_tol_grad * 3
@@ -1174,12 +1171,8 @@ def eig(h, s):
     .. math:: HC = SCE
     '''
     e, c = scipy.linalg.eigh(h, s)
-
-    # It's important to fix the phases of MOs,
-    # otherwise, the autodiff derivatives can be wrong
-    idx = np.argmax(abs(c.real), axis=0)
-    index = ops.index[:,c[idx,np.arange(len(e))].real<0]
-    c = ops.index_mul(c, index, -1)
+    idx = numpy.argmax(abs(c.real), axis=0)
+    c[:,c[idx,numpy.arange(len(e))].real<0] *= -1
     return e, c
 
 def canonicalize(mf, mo_coeff, mo_occ, fock=None):
