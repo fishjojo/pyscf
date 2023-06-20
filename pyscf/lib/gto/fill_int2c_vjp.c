@@ -98,35 +98,45 @@ static void dxpy(int n, double* x, int incx, double* y, int incy)
 }
 
 
-static double contract_ij_ij(double* x, double* y,
-                             int ldy, int i0, int j0,
+static double contract_ij_ij(double* x, double* y, int comp,
+                             int nrow_y, int ldy, int i0, int j0,
                              int nrow, int ncol)
 {// x in F order, y in C order
-    int irow, jcol;
+    int irow, jcol, ic;
+    size_t size_y = (size_t) nrow_y * ldy;
     double sum = 0;
-    y += i0 * ldy + j0;
-    for (irow = 0; irow < nrow; irow++) {
-        for (jcol = 0; jcol < ncol; jcol++) {
-            sum += x[irow+jcol*nrow] * y[jcol];
+    double *py;
+    for (ic = 0; ic < comp; ic++) {
+        py = y + ic * size_y + i0 * ldy + j0;
+        for (irow = 0; irow < nrow; irow++) {
+            for (jcol = 0; jcol < ncol; jcol++) {
+                sum += x[irow+jcol*nrow] * py[jcol];
+            }
+            py += ldy;
         }
-        y += ldy;
+        x += nrow * ncol;
     }
     return sum;
 }
 
 
-static double contract_ij_ji(double* x, double* y,
-                             int ldy, int i0, int j0,
+static double contract_ij_ji(double* x, double* y, int comp,
+                             int nrow_y, int ldy, int i0, int j0,
                              int nrow, int ncol)
 {// x in F order, y in C order
-    int irow, jcol;
+    int irow, jcol, ic;
+    size_t size_y = (size_t) nrow_y * ldy;
     double sum = 0;
-    y += j0 * ldy + i0;
-    for (jcol = 0; jcol < ncol; jcol++) {
-        for (irow = 0; irow < nrow; irow++) {
-            sum += x[irow+jcol*nrow] * y[irow];
+    double *py;
+    for (ic = 0; ic < comp; ic++) {
+        py = y + ic * size_y + j0 * ldy + i0;
+        for (jcol = 0; jcol < ncol; jcol++) {
+            for (irow = 0; irow < nrow; irow++) {
+                sum += x[irow+jcol*nrow] * py[irow];
+            }
+            py += ldy;
         }
-        y += ldy;
+        x += nrow * ncol;
     }
     return sum;
 }
@@ -134,24 +144,26 @@ static double contract_ij_ji(double* x, double* y,
 
 static void GTOint2c_bra_r0_deriv(
         int (*intor)(), double (*contract)(),
-        double* vjp, double* ybar, int comp,
+        double* vjp, double* ybar, int comp, int ndim,
         int ish, int jsh,
         int *shls_slice, int *ao_loc, CINTOpt *opt,
         int *atm, int natm, int *bas, int nbas, double *env,
         double* cache, size_t cache_of)
 {// (i'|j)
     const int ish0 = shls_slice[0];
+    const int ish1 = shls_slice[1];
     const int jsh0 = shls_slice[2];
     const int jsh1 = shls_slice[3];
-    const size_t naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
+    const int naoi_all = ao_loc[ish1] - ao_loc[ish0];
+    const int naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
 
     ish += ish0;
     jsh += jsh0;
     int i0 = ao_loc[ish] - ao_loc[ish0];
     int j0 = ao_loc[jsh] - ao_loc[jsh0];
 
-    const size_t naoi = ao_loc[ish+1] - ao_loc[ish];
-    const size_t naoj = ao_loc[jsh+1] - ao_loc[jsh];
+    const int naoi = ao_loc[ish+1] - ao_loc[ish];
+    const int naoj = ao_loc[jsh+1] - ao_loc[jsh];
     int dims[] = {naoi, naoj};
     int shls[] = {ish, jsh};
     double *mat = cache + cache_of;
@@ -161,27 +173,31 @@ static void GTOint2c_bra_r0_deriv(
 
     int ic;
     int iatm = bas[ATOM_OF+ish*BAS_SLOTS];
-    double *ptr_vjp = vjp + iatm * comp;
-    for (ic = 0; ic < comp; ic++) {
+    double *ptr_vjp = vjp + iatm * ndim;
+    for (ic = 0; ic < ndim; ic++) {
         // minus sign for nuclear derivative
-        ptr_vjp[ic] -= (*contract)(mat, ybar, naoj_all, i0, j0, naoi, naoj);
-        mat += naoi * naoj;
+        ptr_vjp[ic] -= (*contract)(mat, ybar, comp,
+                                   naoi_all, naoj_all,
+                                   i0, j0, naoi, naoj);
+        mat += naoi * naoj * comp;
     }
 }
 
 
 static void GTOint2c_bra_rc_deriv(
         int (*intor)(), double (*contract)(),
-        double* vjp, double* ybar, int comp,
+        double* vjp, double* ybar, int comp, int ndim,
         int ish, int jsh,
         int *shls_slice, int *ao_loc, CINTOpt *opt,
         int *atm, int natm, int *bas, int nbas, double *env,
         double* cache, size_t cache_of)
 {// (i'|j)
     const int ish0 = shls_slice[0];
+    const int ish1 = shls_slice[1];
     const int jsh0 = shls_slice[2];
     const int jsh1 = shls_slice[3];
-    const size_t naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
+    const int naoi_all = ao_loc[ish1] - ao_loc[ish0];
+    const int naoj_all = ao_loc[jsh1] - ao_loc[jsh0];
 
     ish += ish0;
     jsh += jsh0;
@@ -198,9 +214,12 @@ static void GTOint2c_bra_rc_deriv(
              atm, natm, bas, nbas, env, opt, cache);
 
     int ic;
-    for (ic = 0; ic < comp; ic++) {
-        vjp[ic] += (*contract)(mat, ybar, naoj_all, i0, j0, naoi, naoj);
-        mat += naoi * naoj;
+    //FIXME the order of comp and ndim may be wrong
+    for (ic = 0; ic < ndim; ic++) {
+        vjp[ic] += (*contract)(mat, ybar, comp,
+                               naoi_all, naoj_all,
+                               i0, j0, naoi, naoj);
+        mat += naoi * naoj * comp;
     }
 }
 
@@ -365,7 +384,7 @@ static void GTOint2c_bra_coeff_deriv(
 
 
 void GTOint2c_r0_vjp(int (*intor)(), double* vjp, double* ybar,
-                     int comp, int hermi, int *shls_slice,
+                     int comp, int ndim, int hermi, int *shls_slice,
                      int *ao_loc, CINTOpt *opt,
                      int *atm, int natm, int *bas, int nbas, double *env)
 {
@@ -390,7 +409,7 @@ void GTOint2c_r0_vjp(int (*intor)(), double* vjp, double* ybar,
     if (thread_id == 0) {
         vjp_loc = vjp;
     } else {
-        vjp_loc = calloc(natm*comp, sizeof(double));
+        vjp_loc = calloc(natm*ndim, sizeof(double));
     }
     vjpbufs[thread_id] = vjp_loc;
 
@@ -402,20 +421,20 @@ void GTOint2c_r0_vjp(int (*intor)(), double* vjp, double* ybar,
         jsh = ij % njsh;
 
         GTOint2c_bra_r0_deriv(
-            intor, contract_ij_ij, vjp_loc, ybar, comp,
+            intor, contract_ij_ij, vjp_loc, ybar, comp, ndim,
             ish, jsh, shls_slice, ao_loc, opt,
             atm, natm, bas, nbas, env, cache, cache_of);
 
         if (hermi == 0) {
             GTOint2c_bra_r0_deriv(
-                intor, contract_ij_ji, vjp_loc, ybar, comp,
+                intor, contract_ij_ji, vjp_loc, ybar, comp, ndim,
                 jsh, ish, shls_slice_ji, ao_loc, opt,
                 atm, natm, bas, nbas, env, cache, cache_of);
         }
     }
 
     free(cache);
-    NPomp_dsum_reduce_inplace(vjpbufs, natm*comp);
+    NPomp_dsum_reduce_inplace(vjpbufs, natm*ndim);
     if (thread_id != 0) {
         free(vjp_loc);
     }
@@ -424,7 +443,7 @@ void GTOint2c_r0_vjp(int (*intor)(), double* vjp, double* ybar,
 
 
 void GTOint2c_rc_vjp(int (*intor)(), double* vjp, double* ybar,
-                     int comp, int hermi, int *shls_slice,
+                     int comp, int ndim, int hermi, int *shls_slice,
                      int *ao_loc, CINTOpt *opt,
                      int *atm, int natm, int *bas, int nbas, double *env)
 {
@@ -449,7 +468,7 @@ void GTOint2c_rc_vjp(int (*intor)(), double* vjp, double* ybar,
     if (thread_id == 0) {
         vjp_loc = vjp;
     } else {
-        vjp_loc = calloc(comp, sizeof(double));
+        vjp_loc = calloc(ndim, sizeof(double));
     }
     vjpbufs[thread_id] = vjp_loc;
 
@@ -461,20 +480,20 @@ void GTOint2c_rc_vjp(int (*intor)(), double* vjp, double* ybar,
         jsh = ij % njsh;
 
         GTOint2c_bra_rc_deriv(
-            intor, contract_ij_ij, vjp_loc, ybar, comp,
+            intor, contract_ij_ij, vjp_loc, ybar, comp, ndim,
             ish, jsh, shls_slice, ao_loc, opt,
             atm, natm, bas, nbas, env, cache, cache_of);
 
         if (hermi == 0) {
             GTOint2c_bra_rc_deriv(
-                intor, contract_ij_ji, vjp_loc, ybar, comp,
+                intor, contract_ij_ji, vjp_loc, ybar, comp, ndim,
                 jsh, ish, shls_slice_ji, ao_loc, opt,
                 atm, natm, bas, nbas, env, cache, cache_of);
         }
     }
 
     free(cache);
-    NPomp_dsum_reduce_inplace(vjpbufs, comp);
+    NPomp_dsum_reduce_inplace(vjpbufs, ndim);
     if (thread_id != 0) {
         free(vjp_loc);
     }
