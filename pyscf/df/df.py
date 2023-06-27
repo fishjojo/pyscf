@@ -52,6 +52,9 @@ class DF(lib.StreamObject):
             given auxbasis.  It is used in the rest part of the code to
             determine the problem size, the integral batches etc.  This object
             should NOT be modified.
+        incore : bool
+            If set to True, always use the incore version.
+            Default is `(False or mol.incore_anyway)`.
         _cderi_to_save : str
             If _cderi_to_save is specified, the DF integral tensor will be
             saved in this file.
@@ -78,18 +81,22 @@ class DF(lib.StreamObject):
     # Store DF tensor in a format compatible to pyscf-1.1 - pyscf-1.6
     _compatible_format = getattr(__config__, 'df_df_DF_compatible_format', False)
 
-    def __init__(self, mol, auxbasis=None):
+    def __init__(self, mol, auxbasis=None, incore=False):
         self.mol = mol
         self.stdout = mol.stdout
         self.verbose = mol.verbose
         self.max_memory = mol.max_memory
         self._auxbasis = auxbasis
+        self.incore = incore or mol.incore_anyway
 
 ##################################################
 # Following are not input options
         self.auxmol = None
+        if self.incore:
+            self._cderi_to_save = None
+        else:
 # If _cderi_to_save is specified, the 3C-integral tensor will be saved in this file.
-        self._cderi_to_save = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
+            self._cderi_to_save = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
 # If _cderi is specified, the 3C-integral tensor will be read from this file
         self._cderi = None
         self._vjopt = None
@@ -118,7 +125,7 @@ class DF(lib.StreamObject):
                      self._cderi)
         if isinstance(self._cderi_to_save, str):
             log.info('_cderi_to_save = %s', self._cderi_to_save)
-        else:
+        elif not self.incore:
             log.info('_cderi_to_save = %s', self._cderi_to_save.name)
         return self
 
@@ -138,8 +145,8 @@ class DF(lib.StreamObject):
         max_memory = self.max_memory - lib.current_memory()[0]
         int3c = mol._add_suffix('int3c2e')
         int2c = mol._add_suffix('int2c2e')
-        if (nao_pair*naux*8/1e6 < .9*max_memory and
-            not isinstance(self._cderi_to_save, str)):
+        if ((nao_pair*naux*8/1e6 < .9*max_memory and
+            not isinstance(self._cderi_to_save, str)) or self.incore):
             self._cderi = incore.cholesky_eri(mol, int3c=int3c, int2c=int2c,
                                               auxmol=auxmol,
                                               max_memory=max_memory, verbose=log)
@@ -177,7 +184,7 @@ class DF(lib.StreamObject):
             self.mol = mol
         self.auxmol = None
         self._cderi = None
-        if not isinstance(self._cderi_to_save, str):
+        if not isinstance(self._cderi_to_save, str) and not self.incore:
             self._cderi_to_save = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
         self._vjopt = None
         self._rsh_df = {}
