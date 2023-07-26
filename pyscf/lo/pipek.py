@@ -90,9 +90,12 @@ def atomic_pops(mol, mo_coeff, method='meta_lowdin', mf=None):
 
     elif method in ('iao', 'ibo'):
         from pyscf.lo import iao
-        assert mf is not None
-        # FIXME: How to handle UHF/UKS object?
-        orb_occ = mf.mo_coeff[:,mf.mo_occ>0]
+        #assert mf is not None
+        if mf is None:
+            orb_occ = mo_coeff
+        else:
+            # FIXME: How to handle UHF/UKS object?
+            orb_occ = mf.mo_coeff[:,mf.mo_occ>0]
 
         iao_coeff = iao.iao(mol, orb_occ)
         #
@@ -273,10 +276,10 @@ class PipekMezey(boys.Boys):
         if method is None:
             method = self.pop_method
 
-        if method.lower() in ('iao', 'ibo') and self._scf is None:
-            logger.error(self, 'PM with IAO scheme should include an scf '
-                         'object when creating PM object.\n    PM(mol, mf=scf_object)')
-            raise ValueError('PM attribute method is not valid')
+        #if method.lower() in ('iao', 'ibo') and self._scf is None:
+        #    logger.error(self, 'PM with IAO scheme should include an scf '
+        #                 'object when creating PM object.\n    PM(mol, mf=scf_object)')
+        #    raise ValueError('PM attribute method is not valid')
         return atomic_pops(mol, mo_coeff, method, self._scf)
 
 PM = Pipek = PipekMezey
