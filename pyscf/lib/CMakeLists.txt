@@ -155,8 +155,7 @@ option(WITH_F12 "Compling F12 integrals" ON)
 option(USE_QCINT "Using the qcint library (optimized for x86-64) for gaussian integral evaluation" OFF)
 
 if(BUILD_LIBCINT)
-  #set(LIBCINT_GIT https://github.com/sunqm/libcint.git) # libcint is a portable, cross-platform implementation
-  set(LIBCINT_GIT https://github.com/fishjojo/libcint.git)
+  set(LIBCINT_GIT https://github.com/sunqm/libcint.git) # libcint is a portable, cross-platform implementation
   if (USE_QCINT)
     set(LIBCINT_GIT https://github.com/sunqm/qcint.git) # qcint is an optimized implementation for x86-64 architecture
     if(NOT BUILD_MARCH_NATIVE)
@@ -166,8 +165,7 @@ if(BUILD_LIBCINT)
 
   ExternalProject_Add(libcint
     GIT_REPOSITORY ${LIBCINT_GIT}
-    #GIT_TAG v5.1.8
-    GIT_TAG ad
+    GIT_TAG v5.4.0
     PREFIX ${PROJECT_BINARY_DIR}/deps
     INSTALL_DIR ${PROJECT_SOURCE_DIR}/deps
     CMAKE_CACHE_ARGS

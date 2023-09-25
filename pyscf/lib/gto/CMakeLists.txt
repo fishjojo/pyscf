@@ -16,7 +16,6 @@ add_library(cgto SHARED
   fill_int2c.c fill_nr_3c.c fill_r_3c.c fill_int2e.c fill_r_4c.c
   ft_ao.c ft_ao_deriv.c fill_grids_int2c.c
   grid_ao_drv.c deriv1.c deriv2.c nr_ecp.c nr_ecp_deriv.c
-  fill_int2c_vjp.c fill_int2e_vjp.c fill_nr_3c_vjp.c
   autocode/auto_eval1.c)
 add_dependencies(cgto np_helper)
 
