@@ -27,7 +27,7 @@ import numpy
 from pyscf import lib
 from pyscf import gto
 from pyscf.lib import logger
-from pyscf.scf import _vhf
+from pyscf.scf import _vhf, hf
 from pyscf.scf import cphf
 
 # import _response_functions to load gen_response methods in SCF class
@@ -296,7 +296,8 @@ def _get_jk(mol, intor, comp, aosym, script_dms,
     return vs
 
 def solve_mo1(mf, mo_energy, mo_coeff, mo_occ, h1ao_or_chkfile,
-              fx=None, atmlst=None, max_memory=4000, verbose=None):
+              fx=None, atmlst=None, max_memory=4000, verbose=None,
+              max_cycle=50, level_shift=0):
     '''Solve the first order equation
 
     Kwargs:
@@ -343,7 +344,8 @@ def solve_mo1(mf, mo_energy, mo_coeff, mo_occ, h1ao_or_chkfile,
 
         h1vo = numpy.vstack(h1vo)
         s1vo = numpy.vstack(s1vo)
-        mo1, e1 = cphf.solve(fx, mo_energy, mo_occ, h1vo, s1vo)
+        mo1, e1 = cphf.solve(fx, mo_energy, mo_occ, h1vo, s1vo,
+                             max_cycle=max_cycle, level_shift=level_shift)
         mo1 = numpy.einsum('pq,xqi->xpi', mo_coeff, mo1).reshape(-1,3,nao,nocc)
         e1 = e1.reshape(-1,3,nocc,nocc)
 
@@ -467,11 +469,18 @@ def gen_hop(hobj, mo_energy=None, mo_coeff=None, mo_occ=None, verbose=None):
     return h_op, hdiag
 
 
-class Hessian(lib.StreamObject):
+class HessianBase(lib.StreamObject):
     '''Non-relativistic restricted Hartree-Fock hessian'''
 
+    # Max. number of iterations for Krylov solver
+    max_cycle = 50
+    # Shift virtual orbitals to slightly improve the convergence speed of Krylov solver
+    # A small level_shift ~ 0.1 is often helpful to decrease 2 - 3 iterations
+    # while the error of cphf solver may be increased by one magnitude.
+    level_shift = 0
+
     _keys = {
-        'mol', 'base', 'chkfile', 'atmlst', 'de',
+        'mol', 'base', 'chkfile', 'atmlst', 'de', 'max_cycle', 'level_shift'
     }
 
     def __init__(self, scf_method):
@@ -481,13 +490,14 @@ class Hessian(lib.StreamObject):
         self.base = scf_method
         self.chkfile = scf_method.chkfile
         self.max_memory = self.mol.max_memory
-
         self.atmlst = range(self.mol.natm)
         self.de = numpy.zeros((0,0,3,3))  # (A,B,dR_A,dR_B)
 
-    partial_hess_elec = partial_hess_elec
-    hess_elec = hess_elec
-    make_h1 = make_h1
+    def hess_elec(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def make_h1(self, *args, **kwargs):
+        raise NotImplementedError
 
     def get_hcore(self, mol=None):
         if mol is None: mol = self.mol
@@ -564,7 +574,8 @@ class Hessian(lib.StreamObject):
     def solve_mo1(self, mo_energy, mo_coeff, mo_occ, h1ao_or_chkfile,
                   fx=None, atmlst=None, max_memory=4000, verbose=None):
         return solve_mo1(self.base, mo_energy, mo_coeff, mo_occ, h1ao_or_chkfile,
-                         fx, atmlst, max_memory, verbose)
+                         fx, atmlst, max_memory, verbose,
+                         max_cycle=self.max_cycle, level_shift=self.level_shift)
 
     def hess_nuc(self, mol=None, atmlst=None):
         if mol is None: mol = self.mol
@@ -581,10 +592,26 @@ class Hessian(lib.StreamObject):
 
         de = self.hess_elec(mo_energy, mo_coeff, mo_occ, atmlst=atmlst)
         self.de = de + self.hess_nuc(self.mol, atmlst=atmlst)
+        if self.base.disp is not None:
+            self.de += self.get_dispersion()
         return self.de
     hess = kernel
 
     gen_hop = gen_hop
+
+    def to_gpu(self):
+        raise NotImplementedError
+
+
+class Hessian(HessianBase):
+
+    partial_hess_elec = partial_hess_elec
+    hess_elec = hess_elec
+    make_h1 = make_h1
+
+    def to_gpu(self):
+        from gpu4pyscf.hessian.rhf import Hessian
+        return lib.to_gpu(self.view(Hessian))
 
 # Inject to RHF class
 from pyscf import scf

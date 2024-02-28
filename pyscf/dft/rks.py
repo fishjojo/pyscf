@@ -243,6 +243,7 @@ def energy_elec(ks, dm=None, h1e=None, vhf=None):
     ecoul = vhf.ecoul.real
     exc = vhf.exc.real
     e2 = ecoul + exc
+
     ks.scf_summary['e1'] = e1
     ks.scf_summary['coul'] = ecoul
     ks.scf_summary['exc'] = exc
@@ -460,12 +461,11 @@ class KohnShamDFT:
         '''Initialize self.grids the first time call get_veff'''
         if mol is None: mol = self.mol
 
+        ground_state = getattr(dm, 'ndim', 0) == 2
         if self.grids.coords is None:
             t0 = (logger.process_clock(), logger.perf_counter())
             self.grids.build(with_non0tab=True)
-            if (self.small_rho_cutoff > 1e-20 and
-                # dm.ndim == 2 indicates ground state
-                isinstance(dm, numpy.ndarray) and dm.ndim == 2):
+            if self.small_rho_cutoff > 1e-20 and ground_state:
                 # Filter grids the first time setup grids
                 self.grids = prune_small_rho_grids_(self, self.mol, dm,
                                                     self.grids)
@@ -475,14 +475,15 @@ class KohnShamDFT:
         if is_nlc and self.nlcgrids.coords is None:
             t0 = (logger.process_clock(), logger.perf_counter())
             self.nlcgrids.build(with_non0tab=True)
-            if (self.small_rho_cutoff > 1e-20 and
-                # dm.ndim == 2 indicates ground state
-                isinstance(dm, numpy.ndarray) and dm.ndim == 2):
+            if self.small_rho_cutoff > 1e-20 and ground_state:
                 # Filter grids the first time setup grids
                 self.nlcgrids = prune_small_rho_grids_(self, self.mol, dm,
                                                        self.nlcgrids)
             t0 = logger.timer(self, 'setting up nlc grids', *t0)
         return self
+
+    def to_gpu(self):
+        raise NotImplementedError
 
 # Update the KohnShamDFT label in scf.hf module
 hf.KohnShamDFT = KohnShamDFT
@@ -529,3 +530,10 @@ class RKS(KohnShamDFT, hf.RHF):
     def to_hf(self):
         '''Convert to RHF object.'''
         return self._transfer_attrs_(self.mol.RHF())
+
+    def to_gpu(self):
+        from gpu4pyscf.dft.rks import RKS
+        obj = lib.to_gpu(hf.SCF.reset(self.view(RKS)))
+        # Attributes only defined in gpu4pyscf.RKS
+        obj.screen_tol = 1e-14
+        return obj

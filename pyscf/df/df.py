@@ -308,6 +308,10 @@ class DF(lib.StreamObject):
             if auxmol_omega is not None:
                 auxmol.omega = auxmol_omega
 
+    def to_gpu(self):
+        from gpu4pyscf.df.df import DF as DF
+        return lib.to_gpu(self.__class__.reset(self.view(DF)))
+
 GDF = DF
 
 
@@ -353,7 +357,12 @@ class DF4C(DF):
         with self.range_coulomb(omega) as rsh_df:
             return df_jk.r_get_jk(rsh_df, dm, hermi, with_j, with_k)
 
+    def get_eri(self):
+        raise NotImplementedError
+    get_ao_eri = get_eri
+
     def ao2mo(self, mo_coeffs):
         raise NotImplementedError
+    get_mo_eri = ao2mo
 
 GDF4C = DF4C

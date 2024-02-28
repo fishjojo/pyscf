@@ -151,7 +151,7 @@ def get_occ(mf, mo_energy=None, mo_coeff=None):
     e_idx = numpy.argsort(mo_energy.round(9), kind='stable')
     e_sort = mo_energy[e_idx]
     nmo = mo_energy.size
-    mo_occ = numpy.zeros(nmo)
+    mo_occ = numpy.zeros_like(mo_energy)
     nocc = mf.mol.nelectron
     mo_occ[e_idx[:nocc]] = 1
     if mf.verbose >= logger.INFO and nocc < nmo:
@@ -415,8 +415,8 @@ class GHF(hf.SCF):
             fock = self.get_hcore(self.mol) + self.get_veff(self.mol, dm1)
         occidx = mo_occ > 0
         viridx = ~occidx
-        g = reduce(numpy.dot, (mo_coeff[:,occidx].T.conj(), fock,
-                               mo_coeff[:,viridx]))
+        g = mo_coeff[:,occidx].T.conj().dot(
+            fock.dot(mo_coeff[:,viridx]))
         return g.conj().T.ravel()
 
     @lib.with_doc(hf.SCF.init_guess_by_minao.__doc__)
@@ -540,6 +540,10 @@ employing the updated GWH rule from doi:10.1021/ja00480a005.''')
         '''
         from pyscf import dft
         return self._transfer_attrs_(dft.GKS(self.mol, xc=xc))
+
+    def to_gpu(self):
+        from gpu4pyscf.scf import GHF
+        return lib.to_gpu(hf.SCF.reset(self.view(GHF)))
 
 def _from_rhf_init_dm(dm, breaksym=True):
     dma = dm * .5

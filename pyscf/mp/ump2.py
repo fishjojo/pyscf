@@ -154,9 +154,9 @@ def update_amps(mp, t2, eris):
     eris_ovov = numpy.asarray(eris.ovov).reshape(nocca,nvira,nocca,nvira).conj() * .5
     eris_OVOV = numpy.asarray(eris.OVOV).reshape(noccb,nvirb,noccb,nvirb).conj() * .5
     eris_ovOV = numpy.asarray(eris.ovOV).reshape(nocca,nvira,noccb,nvirb).conj().copy()
-    u2aa = eris_ovov.transpose(0,2,1,3) - eris_ovov.transpose(0,2,3,1)
-    u2bb = eris_OVOV.transpose(0,2,1,3) - eris_OVOV.transpose(0,2,3,1)
-    u2ab = eris_ovOV.transpose(0,2,1,3)
+    u2aa += eris_ovov.transpose(0,2,1,3) - eris_ovov.transpose(0,2,3,1)
+    u2bb += eris_OVOV.transpose(0,2,1,3) - eris_OVOV.transpose(0,2,3,1)
+    u2ab += eris_ovOV.transpose(0,2,1,3)
     u2aa = u2aa + u2aa.transpose(1,0,3,2)
     u2bb = u2bb + u2bb.transpose(1,0,3,2)
 
@@ -558,6 +558,8 @@ def _make_eris(mp, mo_coeff=None, ao2mofn=None, verbose=None):
     return eris
 
 def _ao2mo_ovov(mp, orbs, feri, max_memory=2000, verbose=None):
+    from pyscf.scf.uhf import UHF
+    assert isinstance(mp._scf, UHF)
     time0 = (logger.process_clock(), logger.perf_counter())
     log = logger.new_logger(mp, verbose)
     orboa = numpy.asarray(orbs[0], order='F')
