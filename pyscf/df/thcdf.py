@@ -98,7 +98,7 @@ def incore_(mydf, auxbasis='weigend+etb', auxmol=None,
     fill = getattr(libdf, 'THCDFctr_' + aosym)
     drv(getattr(libcgto, int3c), fill,
         int3c_aoRg2.ctypes.data_as(ctypes.c_void_p),
-        X.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(ngrids), 
+        X.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(ngrids),
         non0tab.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.nbas),
         ctypes.c_int(nao), ctypes.c_int(comp),
         (ctypes.c_int*6)(*(shls_slice[:6])),
@@ -109,7 +109,7 @@ def incore_(mydf, auxbasis='weigend+etb', auxmol=None,
     log.timer_debug1('contract_int3c_aoRg2', *t1)
 
     S = lib.dot(X, X.T) ** 2
-    S_inv = scipy.linalg.pinv(S, atol=lindep, rtol=0)
+    S_inv = scipy.linalg.pinvh(S, atol=lindep, rtol=0, check_finite=False)
     B = lib.dot(int3c_aoRg2, S_inv)
 
     int3c_aoRg2 = None
@@ -170,7 +170,7 @@ class THCDF(df.DF):
         auxmol = self.auxmol = addons.make_auxmol(self.mol, self.auxbasis)
         nao = mol.nao_nr()
         naux = auxmol.nao_nr()
-        if self.grids is None: 
+        if self.grids is None:
             ngrids = int(nao * self.c_isdf)
         else:
             ngrids = self.grids.weights.size
