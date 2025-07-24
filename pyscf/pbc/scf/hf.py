@@ -529,7 +529,6 @@ class SCF(mol_hf.SCF):
         self.exxdiv = exxdiv
         if kpt is not None:
             self.kpt = kpt
-        self.conv_tol = max(cell.precision * 10, 1e-8)
 
     @property
     def kpt(self):
