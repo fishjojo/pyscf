@@ -17,6 +17,7 @@
 #
 
 import ctypes
+import weakref
 import numpy as np
 from pyscf import __config__
 from pyscf import lib
@@ -372,11 +373,8 @@ class GridLevel_Info:
             ctypes.c_double(self.rel_cutoff)
         )
 
-    def __del__(self):
-        try:
-            libdft.del_gridlevel_info(ctypes.byref(self._this))
-        except AttributeError:
-            pass
+        self._finalizer = weakref.finalize(self, libdft.del_gridlevel_info,
+                                           ctypes.byref(self._this))
 
 
 class _CRS_Grid(ctypes.Structure):
@@ -403,11 +401,8 @@ class RS_Grid:
             ctypes.c_int(comp)
         )
 
-    def __del__(self):
-        try:
-            libdft.del_rs_grid(ctypes.byref(self._this))
-        except AttributeError:
-            pass
+        self._finalizer = weakref.finalize(self, libdft.del_rs_grid,
+                                           ctypes.byref(self._this))
 
     def __getitem__(self, i):
         '''Get the i-th level density as a numpy array.
@@ -471,10 +466,7 @@ class TaskList:
             precision : float, optional
                 The integral precision. Default is :attr:`cell.precision`.
         '''
-        from pyscf.pbc.gto import (
-            build_neighbor_list_for_shlpairs,
-            free_neighbor_list
-        )
+        from pyscf.pbc.gto import build_neighbor_list_for_shlpairs
 
         self._this = ctypes.POINTER(_CTaskList)()
         self.gridlevel_info = gridlevel_info
@@ -539,7 +531,7 @@ class TaskList:
 
         libdft.build_task_list(
             ctypes.byref(self._this),
-            ctypes.byref(nl),
+            ctypes.byref(nl._this),
             ctypes.byref(gridlevel_info._this),
             getattr(libdft, fn_name),
             ish_atm.ctypes.data_as(ctypes.c_void_p),
@@ -558,13 +550,10 @@ class TaskList:
             ctypes.c_int(hermi)
         )
 
+        self._finalizer = weakref.finalize(self, libdft.del_task_list,
+                                           ctypes.byref(self._this))
+
     @property
     def ntasks(self):
         return [self._this.contents.tasks[i].contents.ntasks for i in range(self.nlevels)]
-
-    def __del__(self):
-        try:
-            libdft.del_task_list(ctypes.byref(self._this))
-        except AttributeError:
-            pass
 

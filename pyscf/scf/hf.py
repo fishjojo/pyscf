@@ -120,6 +120,17 @@ Keyword argument "init_dm" is replaced by "dm0"''')
     mol = mf.mol
     s1e = mf.get_ovlp(mol)
 
+    if mf.canonical_orth:
+        from pyscf.scf import addons
+        x = addons.canonical_orth_(s1e)
+        def _eigh(h, s):
+            h_orth = lib.dot(lib.dot(x.T.conj(), h), x)
+            e, c = numpy.linalg.eigh(h_orth)
+            c = lib.dot(x, c)
+            return e, c
+        _eigh_old = mf._eigh
+        mf._eigh = _eigh
+
     if dm0 is None:
         dm = mf.get_init_guess(mol, mf.init_guess, s1e=s1e, **kwargs)
     else:
@@ -237,6 +248,10 @@ Keyword argument "init_dm" is replaced by "dm0"''')
     logger.timer(mf, 'scf_cycle', *cput0)
     # A post-processing hook before return
     mf.post_kernel(locals())
+
+    if mf.canonical_orth:
+        mf._eigh = _eigh_old
+        x = None
     return scf_conv, e_tot, mo_energy, mo_coeff, mo_occ
 
 
@@ -1699,6 +1714,7 @@ class SCF(lib.StreamObject):
     conv_check = getattr(__config__, 'scf_hf_SCF_conv_check', True)
 
     callback = None
+    canonical_orth = False
 
     _keys = {
         'conv_tol', 'conv_tol_grad', 'conv_tol_cpscf', 'max_cycle', 'init_guess',
@@ -1707,7 +1723,7 @@ class SCF(lib.StreamObject):
         'direct_scf', 'direct_scf_tol', 'conv_check', 'callback',
         'mol', 'chkfile', 'mo_energy', 'mo_coeff', 'mo_occ',
         'e_tot', 'converged', 'cycles', 'scf_summary', 'opt',
-        'disp', 'disp_with_3body',
+        'disp', 'disp_with_3body', 'canonical_orth',
     }
 
     def __init__(self, mol):

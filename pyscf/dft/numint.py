@@ -819,8 +819,8 @@ def _sparse_enough(screen_index, threshold=0.5):
 def _dot_ao_ao_dense(ao1, ao2, wv, out=None):
     '''Returns (bra*wv).T.dot(ket)
     '''
-    assert ao1.flags.f_contiguous
-    assert ao2.flags.f_contiguous
+    #assert ao1.flags.f_contiguous
+    #assert ao2.flags.f_contiguous
     assert ao1.dtype == ao2.dtype == numpy.double
     ngrids, nao = ao1.shape
     if out is None:

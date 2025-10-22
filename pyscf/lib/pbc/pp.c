@@ -1,4 +1,4 @@
-/* Copyright 2021- The PySCF Developers. All Rights Reserved.
+/* Copyright 2021-2025 The PySCF Developers. All Rights Reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -56,12 +56,13 @@ static void _ppnl_fill_g(void (*fsort)(), double* out, double** ints,
     const int di = ao_loc[ish+1] - ao_loc[ish];
     const int dj = ao_loc[jsh+1] - ao_loc[jsh];
     const int dij = di *dj;
-    const int ioff = ao_loc[ish] - ao_loc[ish0];
-    const int joff = ao_loc[jsh] - ao_loc[jsh0];
+    const size_t ioff = ao_loc[ish] - ao_loc[ish0];
+    const size_t joff = ao_loc[jsh] - ao_loc[jsh0];
     const int naoi = ao_loc[ish1] - ao_loc[ish0];
     const int naoj = ao_loc[jsh1] - ao_loc[jsh0];
 
     int i, j, ij, pi, pj, ksh;
+    double *ptr_i, *ptr_j;
     int hl_dim, nd;
     int shls_ki[2], shls_kj[2];
     int *table, *offset;
@@ -93,11 +94,13 @@ static void _ppnl_fill_g(void (*fsort)(), double* out, double** ints,
             hl = hl_data + table[HL_DATA_OF];
             for (i=0; i<hl_dim; i++) {
                 pi = offset[i];
+                ptr_i = ints[i] + (size_t) pi * naoi + ioff;
                 for (j=0; j<hl_dim; j++) {
                     pj = offset[j];
+                    ptr_j = ints[j] + (size_t) pj * naoj + joff;
                     dgemm_(&TRANS_N, &TRANS_T, &di, &dj, &nd,
-                           hl+j+i*hl_dim, ints[i]+pi*naoi+ioff, &naoi,
-                           ints[j]+pj*naoj+joff, &naoj, &D1, buf, &di);
+                           hl+j+i*hl_dim, ptr_i, &naoi,
+                           ptr_j, &naoj, &D1, buf, &di);
                 }
             }
         }
@@ -195,11 +198,11 @@ void contract_ppnl_ip1(double* out, int comp,
 
 #pragma omp parallel
 {
-    size_t ib, id, i, p, ic;
+    int ib, id, i, p, ic;
     double *pout;
     double *buf = (double*) malloc(sizeof(double)*buf_size);
 
-    #pragma omp for schedule(dynamic)
+    #pragma omp for schedule(static)
     for (p = 0; p < nao; p++){
         pout = out + (size_t)p*nao;
         for (id = 0; id < nhl; id++) {
@@ -219,18 +222,18 @@ void contract_ppnl_ip1(double* out, int comp,
             double *hilp = ilp_ip2 + nd*3;
             for (ic = 0; ic < comp; ic++) {
                 for (i=0; i<hl_dim; i++) {
-                    int p0 = offset[i];
+                    size_t p0 = (size_t) offset[i];
                     if (i == 0) {
                         dcopy_(&lp_dim, ppnl_half0+p0*nao, &One, ilp+i*lp_dim, &One);
-                        dcopy_(&nd, ppnl_half_ip2_0+p+p0*nao+ic*n2[0], &nao, ilp_ip2+i*nd, &One);
+                        dcopy_(&nd, ppnl_half_ip2_0+(p+p0*nao+ic*n2[0]), &nao, ilp_ip2+i*nd, &One);
                     }
                     else if (i == 1) {
                         dcopy_(&lp_dim, ppnl_half1+p0*nao, &One, ilp+i*lp_dim, &One);
-                        dcopy_(&nd, ppnl_half_ip2_1+p+p0*nao+ic*n2[1], &nao, ilp_ip2+i*nd, &One);
+                        dcopy_(&nd, ppnl_half_ip2_1+(p+p0*nao+ic*n2[1]), &nao, ilp_ip2+i*nd, &One);
                     }
                     else if (i == 2) {
                         dcopy_(&lp_dim, ppnl_half2+p0*nao, &One, ilp+i*lp_dim, &One);
-                        dcopy_(&nd, ppnl_half_ip2_2+p+p0*nao+ic*n2[2], &nao, ilp_ip2+i*nd, &One);
+                        dcopy_(&nd, ppnl_half_ip2_2+(p+p0*nao+ic*n2[2]), &nao, ilp_ip2+i*nd, &One);
                     }
                 }
                 dgemm_(&TRANS_N, &TRANS_N, &lp_dim, &hl_dim, &hl_dim, 
@@ -292,8 +295,8 @@ void ppnl_nuc_grad_fill_gs1(double* out, double* dm, int comp,
     const int dj = ao_loc[jsh+1] - ao_loc[jsh];
     const int dij = di * dj;
     const size_t dijm = (size_t)dij * comp;
-    const int i0 = ao_loc[ish] - ao_loc[ish0];
-    const int j0 = ao_loc[jsh] - ao_loc[jsh0];
+    const size_t i0 = ao_loc[ish] - ao_loc[ish0];
+    const size_t j0 = ao_loc[jsh] - ao_loc[jsh0];
     const int naoi = ao_loc[ish1] - ao_loc[ish0];
     const int naoj = ao_loc[jsh1] - ao_loc[jsh0];
 
@@ -313,7 +316,8 @@ void ppnl_nuc_grad_fill_gs1(double* out, double* dm, int comp,
     const char TRANS_T = 'T';
     const double D1 = 1.;
 
-    int i, j, pi, pj, ksh, ic;
+    int i, j, ksh, ic;
+    size_t pi, pj;
     int katm, l, hl_dim, nd;
     int shls_ki[2], shls_kj[2];
     int *table, *offset;
@@ -335,16 +339,16 @@ void ppnl_nuc_grad_fill_gs1(double* out, double* dm, int comp,
             memset(buf, 0, dijm*sizeof(double));
             for (ic = 0; ic < comp; ic++) {
                 for (i=0; i<hl_dim; i++) {
-                    pi = offset[i];
+                    pi = (size_t) offset[i];
                     for (j=0; j<hl_dim; j++) {
-                        pj = offset[j];
+                        pj = (size_t) offset[j];
                         dgemm_(&TRANS_N, &TRANS_T, &di, &dj, &nd,
-                               hl+j+i*hl_dim, ints_ip2[i]+ic*n2[i]+pi*naoi+i0, &naoi,
-                               ints[j]+pj*naoj+j0, &naoj, &D1, buf+ic*dij, &di);
+                               hl+(j+i*hl_dim), ints_ip2[i]+(ic*n2[i]+pi*naoi+i0), &naoi,
+                               ints[j]+(pj*naoj+j0), &naoj, &D1, buf+ic*dij, &di);
                     }
                 }
             }
-            _contract_vnuc_ip1_dm(out, buf, dm+j0*naoi+i0, comp,
+            _contract_vnuc_ip1_dm(out, buf, dm+(j0*naoi+i0), comp,
                                   shls_slice, ao_loc, bas,
                                   ish, jsh, naoi, katm);
         }

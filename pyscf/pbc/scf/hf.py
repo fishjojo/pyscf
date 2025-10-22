@@ -46,6 +46,7 @@ from pyscf import __config__
 def get_ovlp(cell, kpt=np.zeros(3)):
     '''Get the overlap AO matrix.
     '''
+    cput0 = (logger.process_clock(), logger.perf_counter())
     precision = cell.precision * 1e-5
     rcut = max(cell.rcut, gto.estimate_rcut(cell, precision))
     with lib.temporary_env(cell, rcut=rcut, precision=precision):
@@ -70,6 +71,7 @@ def get_ovlp(cell, kpt=np.zeros(3)):
                         'improve accuracy.  Recommended settings are\n      '
                         'cell.precision < %.2g\n      '
                         'cell.rcut > %.4g', prec, rmin)
+    _ = logger.timer_debug1(cell, 'get_ovlp', *cput0)
     return s
 
 

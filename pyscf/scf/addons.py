@@ -696,12 +696,14 @@ def canonical_orth_(S, thr=1e-7):
     '''Löwdin's canonical orthogonalization'''
     # Ensure the basis functions are normalized (symmetry-adapted ones are not!)
     normlz = numpy.power(numpy.diag(S), -0.5)
-    Snorm = numpy.dot(numpy.diag(normlz), numpy.dot(S, numpy.diag(normlz)))
+    #Snorm = numpy.dot(numpy.diag(normlz), numpy.dot(S, numpy.diag(normlz)))
+    Snorm = normlz[:,None] * S * normlz[None,:]
     # Form vectors for normalized overlap matrix
     Sval, Svec = numpy.linalg.eigh(Snorm)
     X = Svec[:,Sval>=thr] / numpy.sqrt(Sval[Sval>=thr])
     # Plug normalization back in
-    X = numpy.dot(numpy.diag(normlz), X)
+    #X = numpy.dot(numpy.diag(normlz), X)
+    X = normlz[:,None] * X
     return X
 
 def partial_cholesky_orth_(S, canthr=1e-7, cholthr=1e-9):

@@ -46,34 +46,42 @@ def grad_elec(mf_grad, mo_energy=None, mo_coeff=None, mo_occ=None,
         ni = mf.with_df
         raise NotImplementedError
 
-    s1 = mf_grad.get_ovlp(mol, kpt)
     dm0 = mf.make_rdm1(mo_coeff, mo_occ)
-
-    t0 = (logger.process_clock(), logger.perf_counter())
-    log.debug('Computing Gradients of NR-HF Coulomb repulsion')
-    vhf = mf_grad.get_veff(mol, dm0, kpt)
-    log.timer('gradients of 2e part', *t0)
-
-    dme0 = mf_grad.make_rdm1e(mo_energy, mo_coeff, mo_occ)
 
     if atmlst is None:
         atmlst = range(mol.natm)
 
     if gamma_point(kpt):
-        h1ao = -mol.pbc_intor('int1e_ipkin', kpt=kpt)
         if mol._pseudo:
             de  = ni.vpploc_part1_nuc_grad(dm0, kpts=kpt.reshape(-1,3))
             de += pp_int.vpploc_part2_nuc_grad(mol, dm0)
             de += pp_int.vppnl_nuc_grad(mol, dm0)
-            if hasattr(ni, 'vpplocG_part1'):
-                if ni.vpplocG_part1 is None:
-                    h1ao -= ni.get_vpploc_part1_ip1(kpts=kpt.reshape(-1,3))
         else:
             de = ni.get_nuc_nuc_grad(dm0, kpts=kpt)
-            h1ao -= ni.get_nuc_ip1(kpts=kpt)
-        de += _contract_vhf_dm(mf_grad, np.add(h1ao, vhf), dm0) * 2
+
+        t0 = (logger.process_clock(), logger.perf_counter())
+        log.debug('Computing Gradients of NR-HF Coulomb repulsion')
+        vhf = mf_grad.get_veff(mol, dm0, kpt)
+        log.timer('gradients of 2e part', *t0)
+
+        h1ao = -mol.pbc_intor('int1e_ipkin', kpt=kpt)
+        fock = np.add(h1ao, vhf, out=vhf)
+        h1ao = None
+        if mol._pseudo:
+            if hasattr(ni, 'vpplocG_part1'):
+                if ni.vpplocG_part1 is None:
+                    fock -= ni.get_vpploc_part1_ip1(kpts=kpt.reshape(-1,3))
+        else:
+            fock -= ni.get_nuc_ip1(kpts=kpt)
+
+        de += _contract_vhf_dm(mf_grad, fock, dm0) * 2
+        dm0 = fock = vhf = None
+
+        dme0 = mf_grad.make_rdm1e(mo_energy, mo_coeff, mo_occ)
+        s1 = mf_grad.get_ovlp(mol, kpt)
         de += _contract_vhf_dm(mf_grad, s1, dme0) * -2
-        h1ao = s1 = vhf = dm0 = dme0 = None
+        s1 = dme0 = None
+
         de = de[atmlst]
     else:
         raise NotImplementedError
@@ -90,7 +98,7 @@ def grad_elec(mf_grad, mo_energy=None, mo_coeff=None, mo_occ=None,
 def _contract_vhf_dm(mf_grad, vhf, dm, comp=3, atmlst=None,
                      screen=SCREEN_VHF_DM_CONTRA):
     from pyscf.gto.mole import ao_loc_nr, ATOM_OF
-    from pyscf.pbc.gto import build_neighbor_list_for_shlpairs, free_neighbor_list
+    from pyscf.pbc.gto import build_neighbor_list_for_shlpairs
 
     t0 = (logger.process_clock(), logger.perf_counter())
 
@@ -106,23 +114,20 @@ def _contract_vhf_dm(mf_grad, vhf, dm, comp=3, atmlst=None,
     dm = np.asarray(dm, order="C")
 
     if screen:
-        neighbor_list = build_neighbor_list_for_shlpairs(mol)
+        nl = build_neighbor_list_for_shlpairs(mol)._this
     else:
-        neighbor_list = lib.c_null_ptr()
-    func = getattr(libpbc, "contract_vhf_dm", None)
-    try:
-        func(de.ctypes.data_as(ctypes.c_void_p),
-             vhf.ctypes.data_as(ctypes.c_void_p),
-             dm.ctypes.data_as(ctypes.c_void_p),
-             ctypes.byref(neighbor_list),
-             shls_slice.ctypes.data_as(ctypes.c_void_p),
-             ao_loc.ctypes.data_as(ctypes.c_void_p),
-             shls_atm.ctypes.data_as(ctypes.c_void_p),
-             ctypes.c_int(comp), ctypes.c_int(natm),
-             ctypes.c_int(nbas))
-    except RuntimeError:
-        raise
-    free_neighbor_list(neighbor_list)
+        nl = lib.c_null_ptr()
+    libpbc.contract_vhf_dm(
+        de.ctypes.data_as(ctypes.c_void_p),
+        vhf.ctypes.data_as(ctypes.c_void_p),
+        dm.ctypes.data_as(ctypes.c_void_p),
+        ctypes.byref(nl),
+        shls_slice.ctypes.data_as(ctypes.c_void_p),
+        ao_loc.ctypes.data_as(ctypes.c_void_p),
+        shls_atm.ctypes.data_as(ctypes.c_void_p),
+        ctypes.c_int(comp), ctypes.c_int(natm),
+        ctypes.c_int(nbas)
+    )
 
     if atmlst is not None:
         de = de[atmlst]

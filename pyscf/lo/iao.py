@@ -37,7 +37,7 @@ from pyscf.data.elements import is_ghost_atom
 #     vec_lowdin(iao_coeff, mol.intor('int1e_ovlp'))
 MINAO = getattr(__config__, 'lo_iao_minao', 'minao')
 
-def iao(mol, orbocc, minao=MINAO, kpts=None, lindep_threshold=1e-8):
+def iao(mol, orbocc, minao=MINAO, kpts=None, lindep_threshold=1e-8, pmol=None):
     '''Intrinsic Atomic Orbitals. [Ref. JCTC, 9, 4834]
 
     For large basis sets which are close to being linearly dependent,
@@ -66,7 +66,8 @@ def iao(mol, orbocc, minao=MINAO, kpts=None, lindep_threshold=1e-8):
     if mol.has_ecp() and minao == 'minao':
         logger.warn(mol, 'ECP/PP is used. MINAO is not a good reference AO basis in IAO.')
 
-    pmol = reference_mol(mol, minao)
+    if pmol is None:
+        pmol = reference_mol(mol, minao)
     # For PBC, we must use the pbc code for evaluating the integrals lest the
     # pbc conditions be ignored.
     has_pbc = getattr(mol, 'dimension', 0) > 0

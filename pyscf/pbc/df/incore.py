@@ -524,7 +524,7 @@ def wrap_int3c_sum_auxbas(cell, auxcell, intor='int3c2e', aosym='s1', comp=None,
     atm, bas, env = gto.conc_env(atm, bas, env,
                                  auxcell._atm, auxcell._bas, auxcell._env)
 
-    Ls = cell.get_lattice_Ls()
+    Ls = neighbor_list.Ls
     nimgs = len(Ls)
     nbas = cell.nbas
 
@@ -562,13 +562,13 @@ def wrap_int3c_sum_auxbas(cell, auxcell, intor='int3c2e', aosym='s1', comp=None,
         shls_slice = (shls_slice[0], shls_slice[1],
                       nbas+shls_slice[2], nbas+shls_slice[3],
                       nbas*2+shls_slice[4], nbas*2+shls_slice[5])
-        ni = ao_loc[shls_slice[1]] - ao_loc[shls_slice[0]]
-        nj = ao_loc[shls_slice[3]] - ao_loc[shls_slice[2]]
+        ni = int(ao_loc[shls_slice[1]] - ao_loc[shls_slice[0]])
+        nj = int(ao_loc[shls_slice[3]] - ao_loc[shls_slice[2]])
 
         if aosym[:2] == 's2':
             assert ni == nj
-            nao_pair = (ao_loc[shls_slice[1]]*(ao_loc[shls_slice[1]]+1)//2 -
-                        ao_loc[shls_slice[0]]*(ao_loc[shls_slice[0]]+1)//2)
+            nao_pair = (int(ao_loc[shls_slice[1]])*(int(ao_loc[shls_slice[1]])+1)//2 -
+                        int(ao_loc[shls_slice[0]])*(int(ao_loc[shls_slice[0]])+1)//2)
         else:
             nao_pair = ni * nj
 
@@ -588,7 +588,7 @@ def wrap_int3c_sum_auxbas(cell, auxcell, intor='int3c2e', aosym='s1', comp=None,
             bas.ctypes.data_as(ctypes.c_void_p),
             ctypes.c_int(nbas),  # need to pass cell.nbas to libpbc.PBCnr3c_drv
             env.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(env.size),
-            ctypes.byref(neighbor_list))
+            ctypes.byref(neighbor_list._this))
 
         log.timer_debug1(f'pbc integral {intor}', *t0)
 
@@ -603,7 +603,7 @@ def wrap_int3c_sum_auxbas(cell, auxcell, intor='int3c2e', aosym='s1', comp=None,
 def int3c1e_nuc_grad(cell, auxcell, dm, intor='int3c1e', aosym='s1', comp=3,
                      kptij_lst=np.zeros((1,2,3)), shls_slice=None, **kwargs):
     '''Compute the nuclear gradient contribution
-    to the 2nd local part of PP on the fly.
+    to the short-range local part of PP on the fly.
     See `pbc.gto.pseudo.pp_int.vpploc_part2_nuc_grad`.
 
     Returns:
@@ -651,7 +651,7 @@ def wrap_int3c1e_nuc_grad(cell, auxcell, dm, intor='int3c1e', aosym='s1', comp=3
     atm, bas, env = gto.conc_env(atm, bas, env,
                                  auxcell._atm, auxcell._bas, auxcell._env)
 
-    Ls = cell.get_lattice_Ls()
+    Ls = neighbor_list.Ls
     nimgs = len(Ls)
     nbas = cell.nbas
 
@@ -706,7 +706,7 @@ def wrap_int3c1e_nuc_grad(cell, auxcell, dm, intor='int3c1e', aosym='s1', comp=3
             atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(cell.natm),
             bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(nbas),
             env.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(env.size),
-            ctypes.c_int(cell.nao), ctypes.byref(neighbor_list))
+            ctypes.c_int(cell.nao), ctypes.byref(neighbor_list._this))
 
         log.timer_debug1(f'pbc integral {intor}', *t0)
 

@@ -28,6 +28,7 @@ import numpy
 import numpy as np
 import scipy.special
 from pyscf import lib
+from pyscf.lib import logger
 from pyscf import gto
 from pyscf import __config__
 from pyscf.pbc.lib.kpts_helper import gamma_point
@@ -118,6 +119,7 @@ def get_gth_vlocG_part1(cell, Gv):
 def get_pp_loc_part2(cell, kpts=None):
     '''PRB, 58, 3641 Eq (1), integrals associated to C1, C2, C3, C4
     '''
+    cput0 = (logger.process_clock(), logger.perf_counter())
     if kpts is None or gamma_point(kpts):
         vpploc = [get_pp_loc_part2_gamma(cell)]
     else:
@@ -125,12 +127,13 @@ def get_pp_loc_part2(cell, kpts=None):
         vpploc = _IntPPBuilder(cell, kpts).get_pp_loc_part2()
     if kpts is None or numpy.shape(kpts) == (3,):
         vpploc = vpploc[0]
+    _ = logger.timer_debug1(cell, 'get_pp_loc_part2', *cput0)
     return vpploc
 
 
 def get_pp_loc_part2_gamma(cell):
     from pyscf.pbc.df import incore
-    from pyscf.pbc.gto import build_neighbor_list_for_shlpairs, free_neighbor_list
+    from pyscf.pbc.gto import build_neighbor_list_for_shlpairs
 
     fake_cells = {}
     for cn in range(1, 5):
@@ -150,18 +153,15 @@ def get_pp_loc_part2_gamma(cell):
     intors = ('int3c2e', 'int3c1e', 'int3c1e_r2_origk',
               'int3c1e_r4_origk', 'int3c1e_r6_origk')
     kptij_lst = numpy.zeros((1,2,3))
-    Ls = cell.get_lattice_Ls()
     buf = None
-    for i, (cn, fake_cell) in enumerate(fake_cells.items()):
-        neighbor_list = build_neighbor_list_for_shlpairs(fake_cell, cell, Ls)
+    for cn, fake_cell in fake_cells.items():
+        neighbor_list = build_neighbor_list_for_shlpairs(fake_cell, cell)
         v = incore.aux_e2_sum_auxbas(cell, fake_cell, intors[cn], aosym='s2', comp=1,
                                      kptij_lst=kptij_lst, neighbor_list=neighbor_list)
-        if i == 0:
+        if buf is None:
             buf = v
         else:
             buf = numpy.add(buf, v, out=buf)
-        v = None
-        free_neighbor_list(neighbor_list)
 
     vpploc = lib.unpack_tril(buf)
     return vpploc
@@ -170,14 +170,15 @@ def get_pp_loc_part2_gamma(cell):
 # TODO add k-point sampling
 def vpploc_part2_nuc_grad(cell, dm, kpts=None):
     '''
-    Nuclear gradients of the 2nd part of the local part of
+    Nuclear gradients of the short-range local part of
     the GTH pseudo potential, contracted with the density matrix.
     '''
     from pyscf.pbc.df import incore
-    from pyscf.pbc.gto import build_neighbor_list_for_shlpairs, free_neighbor_list
+    from pyscf.pbc.gto import build_neighbor_list_for_shlpairs
     if kpts is not None and not gamma_point(kpts):
         raise NotImplementedError("k-point sampling not available")
 
+    cput0 = (logger.process_clock(), logger.perf_counter())
     if kpts is None:
         kpts_lst = numpy.zeros((1,3))
     else:
@@ -187,30 +188,27 @@ def vpploc_part2_nuc_grad(cell, dm, kpts=None):
     intors = ('int3c2e_ip1', 'int3c1e_ip1', 'int3c1e_ip1_r2_origk',
               'int3c1e_ip1_r4_origk', 'int3c1e_ip1_r6_origk')
 
-    Ls = cell.get_lattice_Ls()
-    count = 0
-    grad = 0
+    grad = None
     for cn in range(1, 5):
         fakecell = fake_cell_vloc(cell, cn)
         fakecell.precision = EPS_PPL
         if fakecell.nbas > 0:
-            neighbor_list = build_neighbor_list_for_shlpairs(fakecell, cell, Ls)
+            neighbor_list = build_neighbor_list_for_shlpairs(fakecell, cell)
             buf = incore.int3c1e_nuc_grad(cell, fakecell, dm, intors[cn],
                                           kptij_lst=kptij_lst, neighbor_list=neighbor_list)
-            if count == 0:
+            if grad is None:
                 grad = buf
             else:
                 grad = numpy.add(grad, buf, out=grad)
-            buf = None
-            count += 1
-            free_neighbor_list(neighbor_list)
-    grad *= -2
+
+    grad *= -2.
+    _ = logger.timer_debug1(cell, 'vpploc_part2_nuc_grad', *cput0)
     return grad
 
 
 def _prepare_hl_data(fakecell, hl_blocks):
     offset = [0] * 3
-    hl_table = numpy.empty((len(hl_blocks),HL_TABLE_SLOTS), order='C', dtype=numpy.int32)
+    hl_table = numpy.zeros((len(hl_blocks),HL_TABLE_SLOTS), order='C', dtype=numpy.int32)
     hl_data = []
     ptr = 0
     for ib, hl in enumerate(hl_blocks):
@@ -231,6 +229,7 @@ def _prepare_hl_data(fakecell, hl_blocks):
 # TODO add k-point sampling
 def _contract_ppnl(cell, fakecell, hl_blocks, ppnl_half, comp=1, kpts=None):
     from pyscf.pbc.gto import NeighborListOpt
+    cput0 = (logger.process_clock(), logger.perf_counter())
     if kpts is None:
         kpts_lst = numpy.zeros((1,3))
     else:
@@ -274,25 +273,24 @@ def _contract_ppnl(cell, fakecell, hl_blocks, ppnl_half, comp=1, kpts=None):
         ppnl_half1 = numpy.asarray(ppnl_half1, order='C')
         ppnl_half2 = numpy.asarray(ppnl_half2, order='C')
 
-        drv = getattr(libpbc, "contract_ppnl", None)
-        try:
-            drv(fill, buf.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half0.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half1.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half2.ctypes.data_as(ctypes.c_void_p),
-                ctypes.c_int(comp), (ctypes.c_int*4)(*shls_slice),
-                ao_loc.ctypes.data_as(ctypes.c_void_p),
-                hl_table.ctypes.data_as(ctypes.c_void_p),
-                hl_data.ctypes.data_as(ctypes.c_void_p),
-                ctypes.c_int(len(hl_blocks)), opt._this)
-        except Exception as e:
-            raise RuntimeError(f"Failed to compute non-local pseudo-potential.\n{e}")
+        libpbc.contract_ppnl(
+            fill, buf.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half0.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half1.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half2.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int(comp), (ctypes.c_int*4)(*shls_slice),
+            ao_loc.ctypes.data_as(ctypes.c_void_p),
+            hl_table.ctypes.data_as(ctypes.c_void_p),
+            hl_data.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int(len(hl_blocks)), opt._this
+        )
 
         ppnl_k = lib.unpack_tril(buf)
         ppnl.append(ppnl_k)
 
     if kpts is None or numpy.shape(kpts) == (3,):
         ppnl = ppnl[0]
+    _ = logger.timer_debug1(cell, '_contract_ppnl', *cput0)
     return ppnl
 
 
@@ -300,6 +298,7 @@ def _contract_ppnl(cell, fakecell, hl_blocks, ppnl_half, comp=1, kpts=None):
 def _contract_ppnl_nuc_grad(cell, fakecell, dms, hl_blocks, ppnl_half, ppnl_half_ip2,
                             comp=3, kpts=None, hl_table=None, hl_data=None):
     from pyscf.pbc.gto import NeighborListOpt
+    cput0 = (logger.process_clock(), logger.perf_counter())
     if kpts is None:
         kpts_lst = numpy.zeros((1,3))
     else:
@@ -372,27 +371,25 @@ def _contract_ppnl_nuc_grad(cell, fakecell, dms, hl_blocks, ppnl_half, ppnl_half
         ppnl_half_ip2_1 = numpy.asarray(ppnl_half_ip2_1, order='C')
         ppnl_half_ip2_2 = numpy.asarray(ppnl_half_ip2_2, order='C')
 
-        drv = getattr(libpbc, "contract_ppnl_nuc_grad", None)
-        try:
-            drv(fill,
-                grad_k.ctypes.data_as(ctypes.c_void_p),
-                dm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(comp),
-                ppnl_half0.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half1.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half2.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half_ip2_0.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half_ip2_1.ctypes.data_as(ctypes.c_void_p),
-                ppnl_half_ip2_2.ctypes.data_as(ctypes.c_void_p),
-                hl_table.ctypes.data_as(ctypes.c_void_p),
-                hl_data.ctypes.data_as(ctypes.c_void_p),
-                ctypes.c_int(len(hl_blocks)),
-                naux.ctypes.data_as(ctypes.c_void_p),
-                (ctypes.c_int*4)(*shls_slice),
-                ao_loc.ctypes.data_as(ctypes.c_void_p),
-                bas.ctypes.data_as(ctypes.c_void_p),
-                ctypes.c_int(cell.natm), opt._this)
-        except Exception as e:
-            raise RuntimeError(f"Failed to compute non-local pp nuclear gradient.\n{e}")
+        libpbc.contract_ppnl_nuc_grad(
+            fill,
+            grad_k.ctypes.data_as(ctypes.c_void_p),
+            dm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(comp),
+            ppnl_half0.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half1.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half2.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half_ip2_0.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half_ip2_1.ctypes.data_as(ctypes.c_void_p),
+            ppnl_half_ip2_2.ctypes.data_as(ctypes.c_void_p),
+            hl_table.ctypes.data_as(ctypes.c_void_p),
+            hl_data.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int(len(hl_blocks)),
+            naux.ctypes.data_as(ctypes.c_void_p),
+            (ctypes.c_int*4)(*shls_slice),
+            ao_loc.ctypes.data_as(ctypes.c_void_p),
+            bas.ctypes.data_as(ctypes.c_void_p),
+            ctypes.c_int(cell.natm), opt._this
+        )
         grad.append(grad_k)
 
     grad_tot = 0
@@ -402,6 +399,7 @@ def _contract_ppnl_nuc_grad(cell, fakecell, dms, hl_blocks, ppnl_half, ppnl_half
         for k in range(nkpts):
             grad_tot += grad[k]
         grad_tot = grad_tot.real
+    _ = logger.timer_debug1(cell, '_contract_ppnl_nuc_grad', *cput0)
     return grad_tot
 
 
@@ -413,6 +411,7 @@ def get_pp_nl(cell, kpts=None):
     nkpts = len(kpts_lst)
 
     fakecell, hl_blocks = fake_cell_vnl(cell)
+    fakecell.precision = numpy.sqrt(cell.precision)
     ppnl_half = _int_vnl(cell, fakecell, hl_blocks, kpts_lst)
     nao = cell.nao_nr()
 
@@ -456,6 +455,7 @@ def vppnl_nuc_grad(cell, dm, kpts=None):
         kpts_lst = numpy.reshape(kpts, (-1,3))
 
     fakecell, hl_blocks = fake_cell_vnl(cell)
+    fakecell.precision = numpy.sqrt(cell.precision)
     intors = ('int1e_ipovlp', 'int1e_r2_origi_ip2', 'int1e_r4_origi_ip2')
     ppnl_half = _int_vnl(cell, fakecell, hl_blocks, kpts_lst)
     ppnl_half_ip2 = _int_vnl(cell, fakecell, hl_blocks, kpts_lst, intors, comp=3)
@@ -584,9 +584,10 @@ def fake_cell_vnl(cell):
 
 def _int_vnl(cell, fakecell, hl_blocks, kpts, intors=None, comp=1):
     '''Vnuc - Vloc'''
+    cput0 = (logger.process_clock(), logger.perf_counter())
     if intors is None:
         intors = ['int1e_ovlp', 'int1e_r2_origi', 'int1e_r4_origi']
-    rcut = max(cell.rcut, fakecell.rcut)
+    rcut = cell.rcut_by_shells().max() + fakecell.rcut_by_shells().max()
     Ls = cell.get_lattice_Ls(rcut=rcut)
     nimgs = len(Ls)
     expkL = numpy.asarray(numpy.exp(1j*numpy.dot(kpts, Ls.T)), order='C')
@@ -634,4 +635,5 @@ def _int_vnl(cell, fakecell, hl_blocks, kpts, intors=None, comp=1):
     out = (int_ket(fakecell._bas[hl_dims>0], intors[0]),
            int_ket(fakecell._bas[hl_dims>1], intors[1]),
            int_ket(fakecell._bas[hl_dims>2], intors[2]))
+    _ = logger.timer_debug1(cell, '_int_vnl', *cput0)
     return out
