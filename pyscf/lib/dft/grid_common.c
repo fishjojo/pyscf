@@ -232,9 +232,9 @@ static int _orth_components(double *xs_exp, int* bounds, double dx, double radiu
     double base_x = dx * xij_latt;
     double x0xij = base_x - xij;
     double _x0x0 = -aij * x0xij * x0xij;
-    if (_x0x0 < EXPMIN) {
-        return 0;
-    }
+    //if (_x0x0 < EXPMIN) {
+    //    return 0;
+    //}
 
     double *gridx = cache;
     double *xs_all = xs_exp;
@@ -321,6 +321,11 @@ int init_orth_data(double **xs_exp, double **ys_exp, double **zs_exp,
     *zs_exp = *ys_exp + l1 * mesh[1];
     int data_size = l1 * (mesh[0] + mesh[1] + mesh[2]);
     cache += data_size;
+
+    double dh_max = fmax(fmax(dh[0], dh[4]), dh[8]);
+    if (radius * 2 < dh_max) {
+        return 0;
+    }
 
     int ngridx = _orth_components(*xs_exp, grid_slice, dh[0], radius,
                                   ri[0], rj[0], ai, aj, mesh[0], topl, cache);

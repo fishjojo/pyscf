@@ -71,7 +71,7 @@ def multi_grids_tasks(cell, ke_cutoff=None, hermi=0,
     cutoff.reverse()
     mesh = []
     for ke in cutoff[:-1]:
-        mesh.append(tools.cutoff_to_mesh(a, ke))
+        mesh.append(tools.cutoff_to_mesh(a, ke, odd_mesh=False))
     mesh.append(cell.mesh)
     logger.info(cell, 'ke_cutoff for multigrid tasks:\n%s', cutoff)
     logger.info(cell, 'meshes for multigrid tasks:\n%s', mesh)
@@ -194,6 +194,7 @@ def eval_rho(cell, dm, task_list, shls_slice=None, hermi=0, xctype='LDA', kpts=N
                 raise RuntimeError('The two cell objects must have the same lattice vectors.')
     b = np.linalg.inv(a.T)
 
+    cput0 = logger.get_t0()
     rho = []
     for i, dm_i in enumerate(dm):
         rho_i = backend.grid_collocate(
@@ -206,6 +207,7 @@ def eval_rho(cell, dm, task_list, shls_slice=None, hermi=0, xctype='LDA', kpts=N
                     jsh_atm, jsh_bas, jsh_env,
                     cell0.cart)
         rho.append(rho_i)
+    logger.timer_debug1(cell, "grid_collocate", *cput0)
 
     if n_dm == 1:
         rho = rho[0]
@@ -250,6 +252,7 @@ def _eval_rhoG(mydf, dm_kpts, hermi=1, kpts=np.zeros((1,3)), deriv=0,
     rs_rho = eval_rho(cell, dms, task_list, hermi=hermi, xctype=xctype, kpts=kpts,
                       ignore_imag=ignore_imag)
 
+    t0 = logger.get_t0()
     rhoG = np.zeros((nset*rhodim,nx,ny,nz), dtype=np.complex128)
     for ilevel, mesh in enumerate(task_list.gridlevel_info.mesh):
         ngrids = np.prod(mesh)
@@ -275,11 +278,12 @@ def _eval_rhoG(mydf, dm_kpts, hermi=1, kpts=np.zeros((1,3)), deriv=0,
 
     rhoG = rhoG.reshape(nset,rhodim,-1)
     if gga_high_order:
+        assert rhodim == 1
         Gv = cell.get_Gv(mydf.mesh)
         #:rhoG1 = np.einsum('np,px->nxp', rhoG[:,0], 1j*Gv)
-        rhoG1 = backend.gradient_gs(rhoG[:,0], Gv)
-        rhoG = np.concatenate([rhoG, rhoG1], axis=1)
-        Gv = rhoG1 = None
+        #:rhoG = np.concatenate([rhoG, rhoG1], axis=1)
+        rhoG = backend.gradient_gs_stack(rhoG[:,0], Gv)
+    logger.timer_debug1(cell, "eval_rhoG overhead", *t0)
     return rhoG
 
 
@@ -370,6 +374,7 @@ def eval_mat(cell, weights, task_list, shls_slice=None, comp=1, hermi=0, deriv=0
     else:
         raise NotImplementedError
 
+    cput0 = logger.get_t0()
     out = []
     for wv in weights:
         mat = backend.grid_integrate(
@@ -382,6 +387,7 @@ def eval_mat(cell, weights, task_list, shls_slice=None, comp=1, hermi=0, deriv=0
                 jsh_atm, jsh_bas, jsh_env,
                 cell0.cart)
         out.append(mat)
+    logger.timer_debug1(cell, "grid_integrate", *cput0)
 
     if n_mat is None:
         out = out[0]
@@ -400,7 +406,7 @@ def _get_j_pass2(mydf, vG, kpts=np.zeros((1,3)), hermi=1, verbose=None):
                                   ke_ratio=mydf.ke_ratio, rel_cutoff=mydf.rel_cutoff)
 
     if gamma_point(kpts):
-        vj_kpts = np.zeros((nset,nkpts,nao,nao))
+        vj_kpts = None
     else:
         raise NotImplementedError
 
@@ -415,14 +421,27 @@ def _get_j_pass2(mydf, vG, kpts=np.zeros((1,3)), hermi=1, verbose=None):
         gz = np.fft.fftfreq(mesh[2], 1./mesh[2]).astype(np.int32)
         sub_vG = _take_4d(vG, (None, gx, gy, gz)).reshape(nset,ngrids)
 
+        t0 = logger.get_t0()
         v_rs = tools.ifft(sub_vG, mesh).reshape(nset,ngrids)
         vR = np.asarray(v_rs.real, order='C')
+        logger.timer_debug1(cell, "j_pass2_ifft", *t0)
+
         mat = eval_mat(cell, vR, task_list, comp=1, hermi=hermi,
                        xctype='LDA', kpts=kpts, grid_level=ilevel, mesh=mesh)
-        vj_kpts += np.asarray(mat).reshape(nset,-1,nao,nao)
+
+        t0 = logger.get_t0()
+        mat = [m.reshape(-1,nao,nao) for m in mat]
+        if ilevel == 0:
+            vj_kpts = mat
+        else:
+            for i, m in enumerate(mat):
+                vj_kpts[i] += m
+        logger.timer_debug1(cell, "j_pass2 overhead", *t0)
 
     if nset == 1:
         vj_kpts = vj_kpts[0]
+    else:
+        vj_kpts = np.asarray(vj_kpts)
     return vj_kpts
 
 
@@ -586,8 +605,7 @@ def nr_rks(mydf, xc_code, dm_kpts, hermi=1, kpts=None,
     coulG = tools.get_coulG(cell, mesh=mesh)
 
     #:vG = np.einsum('ng,g->ng', rhoG[:,0], coulG)
-    vG = np.multiply(rhoG[0,0], coulG)
-    coulG = None
+    vG = rhoG[0,0] * coulG
 
     if mydf.vpplocG_part1 is not None:
         vG += mydf.vpplocG_part1 * 2
@@ -605,10 +623,18 @@ def nr_rks(mydf, xc_code, dm_kpts, hermi=1, kpts=None,
     weight = cell.vol / ngrids
     # *(1./weight) because rhoR is scaled by weight in _eval_rhoG.  When
     # computing rhoR with IFFT, the weight factor is not needed.
+
+    _t1 = logger.get_t0()
     rhoR = tools.ifft(rhoG.reshape(-1,ngrids), mesh).real * (1./weight)
     rhoR = rhoR.reshape(-1,ngrids)
+    _t1 = logger.timer_debug1(cell, "ifft", *_t1)
+
     exc, vxc = ni.eval_xc_eff(xc_code, rhoR, deriv=1, xctype=xctype)[:2]
+    _t1 = logger.timer_debug1(cell, "eval_xc_eff", *_t1)
+
     wv_freq = tools.fft(vxc, mesh).reshape(-1,ngrids)
+    _t1 = logger.timer_debug1(cell, "fft", *_t1)
+
     if xctype == 'GGA' and GGA_METHOD.upper() == 'FFT':
         #:wv_freq = (wv_freq[0] - 1j * np.einsum('px,xp->p', Gv, wv_freq[1:4])) * weight
         Gv = cell.get_Gv(ni.mesh)
@@ -626,6 +652,7 @@ def nr_rks(mydf, xc_code, dm_kpts, hermi=1, kpts=None,
         wv_freq[0] += vG
 
     kpts_band, input_band = _format_kpts_band(kpts_band, kpts), kpts_band
+
     if xctype in (None, 'LDA', 'HF'):
         veff = _get_j_pass2(mydf, wv_freq, kpts_band, verbose=log)
     elif xctype == 'GGA':
@@ -635,6 +662,7 @@ def nr_rks(mydf, xc_code, dm_kpts, hermi=1, kpts=None,
             veff = _get_gga_pass2(mydf, wv_freq, kpts_band, hermi=hermi, verbose=log)
     else:
         raise NotImplementedError
+
     wv_freq = None
     veff = _format_jks(veff, dm_kpts, input_band, kpts)
 

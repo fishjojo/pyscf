@@ -46,6 +46,21 @@ def gradient_gs(f_gs, Gv):
     )
     return out
 
+def gradient_gs_stack(f_gs, Gv):
+    ng, dim = Gv.shape
+    assert dim == 3
+    Gv = np.asarray(Gv, order='C', dtype=np.float64)
+    f_gs = np.asarray(f_gs.reshape(-1,ng), order='C', dtype=np.complex128)
+    n = f_gs.shape[0]
+    out = np.empty((n,1+dim,ng), dtype=np.complex128)
+    libdft.gradient_gs_stack(
+        out.ctypes.data_as(ctypes.c_void_p),
+        f_gs.ctypes.data_as(ctypes.c_void_p),
+        Gv.ctypes.data_as(ctypes.c_void_p),
+        ctypes.c_int(n), ctypes.c_size_t(ng)
+    )
+    return out
+
 def get_gga_vrho_gs(v, v1, Gv, weight, ngrid, fac=2.):
     '''Update v inplace
     v -= fac * 1j * np.einsum('px,xp->p', Gv, v1)

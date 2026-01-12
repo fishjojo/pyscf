@@ -790,7 +790,7 @@ def _build_supcell_(supcell, cell, Ls):
     return supcell
 
 
-def cutoff_to_mesh(a, cutoff):
+def cutoff_to_mesh(a, cutoff, odd_mesh=True):
     r'''
     Convert KE cutoff to FFT-mesh
 
@@ -813,7 +813,9 @@ def cutoff_to_mesh(a, cutoff):
     rz = np.linalg.qr(b.T)[1][2,2]
 
     Gmax = (2*cutoff)**.5 / np.abs([rx, ry, rz])
-    mesh = np.ceil(Gmax).astype(int) * 2 + 1
+    mesh = np.ceil(Gmax).astype(int) * 2
+    if odd_mesh:
+        mesh = mesh + 1
     return mesh
 
 def mesh_to_cutoff(a, mesh):

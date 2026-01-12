@@ -111,6 +111,8 @@ TIMER_LEVEL  = getattr(pyscf.__config__, 'TIMER_LEVEL', DEBUG)
 
 sys.verbose = NOTE
 
+get_t0 = lambda: (process_clock(), perf_counter())
+
 def flush(rec, msg, *args):
     rec.stdout.write(msg%args)
     rec.stdout.write('\n')

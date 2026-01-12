@@ -33,7 +33,7 @@ endif()
 set(CMAKE_C_FLAGS "-Wall ${CMAKE_C_FLAGS}")
 set(CMAKE_C_STANDARD 99)
 
-option(BUILD_MARCH_NATIVE "gcc flag -march=native" off)
+option(BUILD_MARCH_NATIVE "gcc flag -march=native" on)
 if (BUILD_MARCH_NATIVE)
   include(CheckCCompilerFlag)
   CHECK_C_COMPILER_FLAG("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
@@ -139,8 +139,8 @@ else ()
   set(CMAKE_INSTALL_RPATH "\$ORIGIN:\$ORIGIN/deps/lib:\$ORIGIN/deps/lib64")
 endif ()
 
-option(ENABLE_FFTW "Using fftw3" OFF)
-option(BUILD_FFTW "Building fftw3" OFF)
+option(ENABLE_FFTW "Using fftw3" ON)
+option(BUILD_FFTW "Building fftw3" ON)
 
 add_subdirectory(np_helper)
 add_subdirectory(gto)
@@ -172,10 +172,10 @@ option(USE_QCINT "Using the qcint library (optimized for x86-64) for gaussian in
 
 if(BUILD_LIBCINT)
   set(LIBCINT_GIT https://github.com/sunqm/libcint.git) # libcint is a portable, cross-platform implementation
-  set(LIBCINT_VERSION v6.1.1)
+  set(LIBCINT_VERSION v6.1.3)
   if (USE_QCINT)
     set(LIBCINT_GIT https://github.com/sunqm/qcint.git) # qcint is an optimized implementation for x86-64 architecture
-    set(LIBCINT_VERSION v6.1.2)
+    set(LIBCINT_VERSION v6.1.3)
     if(NOT BUILD_MARCH_NATIVE)
       message(WARNING "The BUILD_MARCH_NATIVE option is not specified! qcint may not compile unless you explicitly pass compiler flags that turn on vectorization!")
     endif()
@@ -237,6 +237,7 @@ if(ENABLE_LIBXC AND BUILD_LIBXC)
             -DCMAKE_C_CREATE_SHARED_LIBRARY=${C_LINK_TEMPLATE}
             -DENABLE_XHOST:STRING=${BUILD_MARCH_NATIVE}
             -DCMAKE_C_COMPILER:STRING=${CMAKE_C_COMPILER}
+	    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 # remove when libxc update version min in next release
   )
   add_dependencies(xc_itrf libxc)
   add_dependencies(dft libxc)

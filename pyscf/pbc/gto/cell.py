@@ -1457,7 +1457,7 @@ class Cell(mole.MoleBase):
               h=None, dimension=None, rcut= None, low_dim_ft_type=None,
               space_group_symmetry=None, symmorphic=None,
               use_loose_rcut=None, use_particle_mesh_ewald=None,
-              fractional=None, *args, **kwargs):
+              fractional=None, odd_mesh=True, *args, **kwargs):
         '''Setup Mole molecule and Cell and initialize some control parameters.
         Whenever you change the value of the attributes of :class:`Cell`,
         you need call this function to refresh the internal data of Cell.
@@ -1630,7 +1630,7 @@ class Cell(mole.MoleBase):
                 ke_cutoff = estimate_ke_cutoff(self, self.precision)
             else:
                 ke_cutoff = self.ke_cutoff
-            self._mesh = pbctools.cutoff_to_mesh(_a, ke_cutoff)
+            self._mesh = pbctools.cutoff_to_mesh(_a, ke_cutoff, odd_mesh=odd_mesh)
 
             if self.dimension <= 2 and self.low_dim_ft_type == 'inf_vacuum':
                 self._mesh[self.dimension:] = _mesh_inf_vaccum(self)
@@ -1815,7 +1815,7 @@ class Cell(mole.MoleBase):
                 return abs_kpts.kpts_scaled
         return 1./(2*np.pi)*np.dot(abs_kpts, self.lattice_vectors().T)
 
-    def cutoff_to_mesh(self, ke_cutoff):
+    def cutoff_to_mesh(self, ke_cutoff, odd_mesh=True):
         '''Convert KE cutoff to FFT-mesh
 
         Args:
@@ -1827,7 +1827,7 @@ class Cell(mole.MoleBase):
         '''
         a = self.lattice_vectors()
         dim = self.dimension
-        mesh = pbctools.cutoff_to_mesh(a, ke_cutoff)
+        mesh = pbctools.cutoff_to_mesh(a, ke_cutoff, odd_mesh=odd_mesh)
         if dim < 2 or (dim == 2 and self.low_dim_ft_type == 'inf_vacuum'):
             mesh[dim:] = self.mesh[dim:]
         return mesh
