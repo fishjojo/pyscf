@@ -23,6 +23,7 @@ Extension to numpy and scipy
 import ctypes
 import math
 import numpy
+import scipy.special
 from pyscf.lib import misc
 from numpy import asarray  # For backward compatibility
 
@@ -948,6 +949,84 @@ def _zgemm(trans_a, trans_b, m, n, k, a, b, c, alpha=1, beta=0,
                        (ctypes.c_double*2)(beta.real, beta.imag))
     return c
 
+if hasattr(scipy.special, 'sph_harm'):
+    def Ylm(l,m,theta,phi):
+        '''
+        Spherical harmonics; returns a complex number
+
+        Note the "convention" for theta and phi:
+        http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.special.sph_harm.html
+        '''
+        #return scipy.special.sph_harm(m=m,n=l,theta=phi,phi=theta)
+        return scipy.special.sph_harm(m,l,phi,theta)
+else:
+    def Ylm(l,m,theta,phi):
+        # A workaround due to scipy sph_harm_y bug https://github.com/scipy/scipy/issues/24383
+        #return scipy.special.sph_harm_y(m,l,phi,theta)
+        from pyscf import gto
+        sintheta = numpy.sin(theta)
+        x = sintheta * numpy.cos(phi)
+        y = sintheta * numpy.sin(phi)
+        z = numpy.cos(theta)
+        r = numpy.column_stack((x, y, z)).reshape(-1, 3)
+
+        ngrid = r.shape[0]
+        xs = numpy.ones((l+1,ngrid))
+        ys = numpy.ones((l+1,ngrid))
+        zs = numpy.ones((l+1,ngrid))
+        for i in range(1,l+1):
+            xs[i] = xs[i-1] * r[:,0]
+            ys[i] = ys[i-1] * r[:,1]
+            zs[i] = zs[i-1] * r[:,2]
+        nd = (l+1)*(l+2)//2
+        c = numpy.empty((nd,ngrid))
+        k = 0
+        for lx in reversed(range(0, l+1)):
+            for ly in reversed(range(0, l-lx+1)):
+                lz = l - lx - ly
+                c[k] = xs[lx] * ys[ly] * zs[lz]
+                k += 1
+        ylm_real = gto.cart2sph(l, c.T).T
+        if l == 1:
+            # libcint returns p functions in px,py,pz order.
+            # reorder px,py,pz to p(-1),p(0),p(1)
+            ylm_real = ylm_real[[1,2,0]]
+
+        s = 2**-.5
+        #:ylm = numpy.empty(ylm_real.shape, dtype=numpy.complex128)
+        #:ylm[l] = ylm_real[l]
+        #:for m in range(1, l+1):
+        #:    a = ylm_real[l-m] * s
+        #:    b = ylm_real[l+m] * s
+        #:    if m % 2 == 0:
+        #:        ylm[l-m].real = b
+        #:        ylm[l+m].real = b
+        #:        ylm[l-m].imag = -a
+        #:        ylm[l+m].imag = a
+        #:    else:
+        #:        ylm[l-m].real = b
+        #:        ylm[l+m].real = -b
+        #:        ylm[l-m].imag = -a
+        #:        ylm[l+m].imag = -a
+        if m == 0:
+            ylm = ylm_real[l].astype(numpy.complex128)
+        else:
+            a = ylm_real[l-abs(m)] * s
+            b = ylm_real[l+abs(m)] * s
+            if m % 2 == 0:
+                if m < 0:
+                    ylm = b - 1j*a
+                else:
+                    ylm = b + 1j*a
+            else:
+                if m < 0:
+                    ylm = b - 1j*a
+                else:
+                    ylm = -b - 1j*a
+        if theta.ndim == 0:
+            ylm = ylm[0]
+        return ylm
+
 def frompointer(pointer, count, dtype=float):
     '''Interpret a buffer that the pointer refers to as a 1-dimensional array.
 
@@ -1297,6 +1376,58 @@ def entrywise_mul(a, b, out=None):
        ctypes.c_size_t(ldb),
        out.ctypes.data_as(ctypes.c_void_p),
        ctypes.c_size_t(ld_out))
+    return out
+
+def broadcast_mul(a, b, out=None):
+    """Broadcasted entrywise multiplication.
+    out[:, :, :] += a[:, :, :] * b[None, :, :]
+
+    Parameters
+    ----------
+    a : ndarray, C order, 3D.
+    b : ndarray, C order, 2D.
+    out : ndarray, optional
+        Output matrix. A new one is allocated and zeroed if not provided.
+
+    Returns
+    -------
+    ndarray
+        a * b
+    """
+    assert a.ndim == 3 and b.ndim == 2
+    assert a.shape[1:] == b.shape and a.dtype == b.dtype
+    a_strides = [s//a.itemsize for s in a.strides]
+    assert a_strides[2] == 1
+
+    if out is None:
+        out = zeros(a.shape, a.dtype, order='C')
+    else:
+        assert out.shape == a.shape and out.dtype == a.dtype
+
+    out_strides = [s//out.itemsize for s in out.strides]
+    assert out_strides[2] == 1
+
+    b_strides = [s//b.itemsize for s in b.strides]
+    assert b_strides[1] == 1
+    ldb = b_strides[0]
+
+    if a.dtype == numpy.double:
+        fn = _np_helper.NPomp_dmul_12
+    elif a.dtype == numpy.complex128:
+        fn = _np_helper.NPomp_zmul_12
+    else:
+        raise NotImplementedError
+    fn(ctypes.c_size_t(a.shape[0]),
+       ctypes.c_size_t(a.shape[1]),
+       ctypes.c_size_t(a.shape[2]),
+       a.ctypes.data_as(ctypes.c_void_p),
+       ctypes.c_size_t(a_strides[0]),
+       ctypes.c_size_t(a_strides[1]),
+       b.ctypes.data_as(ctypes.c_void_p),
+       ctypes.c_size_t(ldb),
+       out.ctypes.data_as(ctypes.c_void_p),
+       ctypes.c_size_t(out_strides[0]),
+       ctypes.c_size_t(out_strides[1]))
     return out
 
 def ndarray_pointer_2d(array):

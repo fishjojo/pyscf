@@ -564,6 +564,7 @@ class SCF(mol_hf.SCF):
 
     def reset(self, cell=None):
         '''Reset cell and relevant attributes associated to the old cell object'''
+        mol_hf.SCF.reset(self, cell)
         if cell is not None:
             self.cell = cell
         self.with_df.reset(cell)
@@ -655,6 +656,11 @@ class SCF(mol_hf.SCF):
         if kpt is None: kpt = self.kpt
 
         cpu0 = (logger.process_clock(), logger.perf_counter())
+        if getattr(dm, "mo_coeff", None) is not None:
+            mo_coeff = np.asarray(dm.mo_coeff)
+            mo_occ = np.asarray(dm.mo_occ)
+        else:
+            mo_coeff = mo_occ = None
         dm = np.asarray(dm)
         nao = dm.shape[-1]
 
@@ -682,8 +688,15 @@ class SCF(mol_hf.SCF):
             vj, vk = self.rsjk.get_jk(dm.reshape(-1,nao,nao), hermi, kpt, kpts_band,
                                       with_j, with_k, omega, exxdiv=self.exxdiv)
         else:
-            vj, vk = self.with_df.get_jk(dm.reshape(-1,nao,nao), hermi, kpt, kpts_band,
+            dm_shape = dm.shape
+            dm = dm.reshape(-1, nao, nao)
+            if mo_coeff is not None:
+                dm = lib.tag_array(dm, mo_coeff=mo_coeff.reshape(-1, nao, nao),
+                                   mo_occ=mo_occ.reshape(-1, nao))
+            vj, vk = self.with_df.get_jk(dm, hermi, kpt, kpts_band,
                                          with_j, with_k, omega, exxdiv=self.exxdiv)
+            dm = dm.reshape(dm_shape)
+
         if with_j:
             vj = _format_jks(vj, dm, kpts_band)
         if with_k:
@@ -920,6 +933,8 @@ class KohnShamDFT:
 
 
 class RHF(SCF):
+    '''PBC RHF at a single point (default: gamma point).
+    '''
 
     analyze = mol_hf.RHF.analyze
     spin_square = mol_hf.RHF.spin_square
